@@ -1,0 +1,374 @@
+---
+title: "META_simulation_analysis"
+author: "Jonas BÉAL"
+date: "12/12/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+original_path <- normalizePath(getwd())
+base_folder <- dirname(dirname(original_path))
+
+knitr::opts_knit$set(root.dir = base_folder)
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+
+```
+
+```{r packages, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(RColorBrewer)
+library(VennDiagram)
+library(knitr)
+library(gridExtra)
+library(magrittr)
+library(ggplot2)
+library(ggExtra)
+library(ggalt)
+library(corrplot)
+library(caret)
+library(survival)
+library(ggfortify)
+library(tsne)
+library(survminer)
+library(timeROC)
+library(risksetROC)
+library(survAUC)
+library(mclust)
+tbl_to_df <- function(x){
+  x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
+}
+rename <- dplyr::rename
+select <- dplyr::select
+```
+
+```{r DataImport, echo=FALSE, message=FALSE, warning=FALSE}
+plot_3d <- TRUE
+
+pheno <- c("Apoptosis", "Proliferation")
+
+#Nodes data
+num_files <- 10
+tabfiles <- paste("Results/Simulations/resultsN_META_mutations_asMutants_RNA_asTransition_",1:num_files,".txt",sep="")
+for(i in 1:length(tabfiles)){
+  a1<- read.table(tabfiles[i], header = TRUE, row.names=2, sep=" ", stringsAsFactors=FALSE, fill = TRUE)
+  a1<-a1[,-c(1,2,ncol(a1))]
+  if(i==1){
+    tab <- a1
+  }else{
+    tab <- cbind(tab,a1[rownames(tab),])
+  }
+}
+simulations <- tab
+
+#Nodes filter
+#Low variation
+var_nodes <- sapply(simulations, function(x) max(x, na.rm = T)-min(x, na.rm = T)) > 0.01
+#One distant outlier
+simu_dig <- round(simulations, digits = 2)
+no_dis_out <- !sapply(simu_dig, function(x) any(table(x)==dim(simulations)[1]-1))
+#All
+index <- var_nodes & no_dis_out
+print("Number of variant nodes:")
+print(sum(index))
+print("out of")
+print(dim(simulations)[2])
+
+simulations <- simulations[,index]
+
+#Import META clinical data
+#Limit survival data to 120 months
+limit <- 120
+
+META_samp <- read_delim("Data/METABRIC/data_clinical_supp_sample.txt", delim = "\t") %>% select(-SAMPLE_ID)
+
+META_patient <- read_delim("Data/METABRIC/data_clinical_supp_patient.txt", delim = "\t") %>% select(ER_IHC, PATIENT_ID, OS_STATUS, OS_MONTHS, CLAUDIN_SUBTYPE, AGE_AT_DIAGNOSIS, VITAL_STATUS, CHEMOTHERAPY, HORMONE_THERAPY, RADIO_THERAPY, NPI) %>% rename(PAM50=CLAUDIN_SUBTYPE) %>% mutate(PAM50=factor(PAM50)) %>% mutate(Status = recode(VITAL_STATUS, 'Living'=0, 'Died of Other Causes'=0,'Died of Disease'=1)) %>% mutate(Status_lim = if_else(Status==1 & OS_MONTHS<=limit,1,0), OS_MONTHS_lim = if_else(OS_MONTHS<=limit,OS_MONTHS,limit))
+
+META_clin <- full_join(META_samp, META_patient, by="PATIENT_ID") %>% mutate(AGE_AT_DIAGNOSIS=as.numeric(AGE_AT_DIAGNOSIS),TUMOR_SIZE=as.numeric(TUMOR_SIZE))
+
+PAMcolours <- c("Her2" = "palevioletred", "Basal" = "red4", "LumA" = "midnightblue", "LumB" = "steelblue", "Normal" = "lightgreen", "claudin-low" = "yellow", "NC" = "grey")
+
+ggplot(META_clin, aes(x=PAM50, fill=PAM50)) + geom_bar() + xlab("PAM50 group") + ggtitle("PAM50 group distribution") + scale_fill_manual(values=PAMcolours, name="PAM50 Groups Distribution")
+
+
+#Import MKI67 for futher test. First utilities to convert patient names
+MKI67_num <- unlist(strsplit(system("grep \"MKI67\\t\" Data/METABRIC/data_expression.txt", intern = T),"\t")) %>% tail(length(.)-2) %>% as.numeric
+MKI67_id <- unlist(strsplit(system("grep \"Hugo_Symbol\" Data/METABRIC/data_expression.txt", intern = T),"\t"))
+MKI67_id <- MKI67_id[3:length(MKI67_id)]
+MKI67 <- cbind.data.frame(MKI67_id, MKI67_num) %>% rename(PATIENT_ID=MKI67_id, MKI67=MKI67_num) %>% mutate(MKI67=log2(MKI67+1))
+META_clin <- left_join(META_clin, MKI67,by="PATIENT_ID")
+
+common_patients <- intersect(rownames(simulations), META_clin$PATIENT_ID)
+
+META_clin %<>% filter(PATIENT_ID %in% common_patients)  %>% slice(match(common_patients, PATIENT_ID))
+simulations <- simulations[common_patients,]
+
+tibble_transpose <- function(df_input){
+  df_output <- df_input %>% gather(var, value, -Hugo_Symbol) %>%
+    spread(Hugo_Symbol, value) %>%
+    rename(PATIENT_ID=var) %>% 
+    type_convert
+}
+
+genenames <- read.table("Models/Fumia2013/Fumia_namesToHugo_curated.txt",header=T,sep="\t")
+geneindex <- strsplit(as.character(genenames[,2]), split = ",") %>% sapply(function(l){gsub(" ","",l)})
+geneindex <- data.frame(V1 = rep(genenames[,1], sapply(geneindex, length)), V2 = unlist(geneindex))
+model_nodes_HUGO <- unique(geneindex[,2]) %>% sub("^\\s+", "", .)
+
+META_RNA <- read_delim("Data/METABRIC/data_expression.txt", delim = "\t") %>% select(-Entrez_Gene_Id) %>% filter(Hugo_Symbol %in% model_nodes_HUGO) %>% tibble_transpose
+rownames(META_RNA) <- META_RNA$PATIENT_ID
+META_RNA %<>% select(-PATIENT_ID) %>% as.data.frame
+META_RNA <- META_RNA[common_patients,]
+
+```
+
+## First descriptive plots
+
+We plot the distributions across cohort of Proliferation and Apoptosis
+
+```{r descriptive, echo=FALSE, message=FALSE}
+
+#Scores for WT non-instantiated model for comparison
+WT_prolif <- 0.019
+WT_apop <- 0.906
+
+simulations %>% select(Proliferation, Apoptosis) %>% gather(key="Phenotype", value="Score") %>% mutate(WT=if_else(Phenotype=='Proliferation',WT_prolif,WT_apop)) %>%
+  ggplot() + geom_density(aes(x=Score, fill=Phenotype)) + 
+  geom_vline(aes(xintercept=WT, linetype="WT"),size=1,colour="black",show.legend=T) +
+  facet_grid(~Phenotype) + scale_linetype_manual(values = c("WT" = "twodash")) + 
+  labs(title="Distribution of Phenotypes scores across cohort")
+
+```
+
+## Correlation with signatures and clinical factors
+
+### Proliferation
+
+Since a MKI67 score is available in META dataset, we can study the correlation between the simulated Proliferation phenotype and the MKI67 score.
+
+```{r proliferation, echo=FALSE, message=FALSE, eval=TRUE}
+
+print("Correlation between MKI67 and simulated Proliferation:")
+cor(simulations$Proliferation, META_clin$MKI67)
+
+g1 <- cbind.data.frame(Simulation_based=simulations$Proliferation, MKI67=META_clin$MKI67) %>% ggplot(aes(x=Simulation_based, y=MKI67)) + 
+  stat_density_2d(aes(fill=..level..), geom = "polygon") +
+  scale_fill_continuous(low = 'royalblue',high='red4',name='Density levels') +
+  geom_point(size=1) + 
+  ggtitle("Proliferation scores based on either simulation or MKI67 biomarker")
+ggMarginal(g1, type = "histogram", fill="transparent")
+
+print("Correlation between NPI and simulated Proliferation:")
+cor(simulations$Proliferation, META_clin$NPI)
+
+```
+
+### Others
+
+The same kind of analysis is possible with every Node score of the model simulations
+
+## PAM50 subtypes distribution
+
+### Global picture
+
+Is it possible to stratify patients (i.e. infer PAM50 subtype), based on simulation results? Let's have a look on PCA
+
+```{r PAM50_PCA, echo=FALSE, message=FALSE}
+pca_sim <- prcomp(~.,simulations, na.action = na.omit)
+prop.pca <-  round((pca_sim$sdev^2/sum(pca_sim$sdev^2))*100, digits=1)
+plot_data <- data.frame(pca_sim$x, Subtype=META_clin$PAM50[META_clin$PATIENT_ID %in% rownames(pca_sim$x)])
+plot_data %>% filter(Subtype!='NC') %>% ggplot(aes(PC1, PC2)) + 
+  stat_density2d(geom="polygon",aes(alpha=..level..)) +
+  scale_alpha_continuous(name='Density levels') +
+  geom_point(size=1,aes(col=Subtype)) + 
+  labs(title="PAM50 Subtypes - PCA with Simulation Outputs from Case #2",subtitle="With principal components PC1 and PC2 as X and Y axis", x=paste0("PC1 (",prop.pca[1],"%)"), y=paste0("PC2 (",prop.pca[2],"%)")) +
+  scale_colour_manual(values=PAMcolours, name="Subtypes") +
+  theme_bw()
+
+plot_data %<>% mutate(Subtype=factor(Subtype,levels=c('LumA','LumB','Normal','Basal','Her2','claudin-low')))
+
+plot_data %>% filter(Subtype!='NC') %>% ggplot(aes(x=PC1,fill=Subtype)) + 
+  geom_density(alpha=0.5) + scale_fill_manual(values=PAMcolours)
+
+if (plot_3d==TRUE){
+  library(rgl)
+plot3d(plot_data$PC1,plot_data$PC2,plot_data$PC3, col = recode(plot_data$Subtype, "Her2" = "palevioletred", "Basal" = "red4", "LumA" = "midnightblue", "LumB" = "steelblue", "Normal" = "lightgreen", "claudin-low" = "yellow", "NC" = "grey"))
+}
+
+
+```
+
+For the sake of comparison we perform the same analyses with original RNA data, focusing only on RNA realated to model nodes
+
+```{r PAM50_PCA_ref, echo=FALSE, message=FALSE}
+
+pca_sim2 <- prcomp(~.,META_RNA, na.action = na.omit)
+prop.pca2 <-  round((pca_sim2$sdev^2/sum(pca_sim2$sdev^2))*100, digits=1)
+plot_data2 <- data.frame(pca_sim2$x, Subtype=META_clin$PAM50[META_clin$PATIENT_ID %in% rownames(pca_sim2$x)])
+
+plot_data2 %>% filter(Subtype!='NC') %>% ggplot(aes(PC1, PC2)) + 
+  stat_density2d(geom="polygon",aes(alpha=..level..)) +
+  scale_alpha_continuous(name='Density levels') +
+  geom_point(size=1,aes(col=Subtype)) + 
+  labs(title="PAM50 Subtypes - Model-related RNA",subtitle="With principal components PC1 and PC2 as X and Y axis", x=paste0("PC1 (",prop.pca[1],"%)"), y=paste0("PC2 (",prop.pca[2],"%)")) +
+  scale_colour_manual(values=PAMcolours, name="Subtypes") +
+  theme_bw()
+
+plot_data2 %<>% mutate(Subtype=factor(Subtype,levels=c('LumA','Normal','LumB','Her2','Basal','claudin-low')))
+
+plot_data2 %>% filter(Subtype!='NC') %>% ggplot(aes(x=PC1,fill=Subtype)) + 
+  geom_density(alpha=0.5) + scale_fill_manual(values=PAMcolours)
+
+```
+
+
+## Survival analysis
+
+###First discrete analysis
+
+First simple Cox model with Proliferation...
+
+```{r Survival_continuous, echo=FALSE, message=FALSE}
+survival_data <- full_join(META_clin, simulations %>% rownames_to_column(var="PATIENT_ID"), by="PATIENT_ID") 
+
+#First very simple cox model with Proliferation
+print('Survival Analysis with Proliferation score')
+fit_prolif <-coxph(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Proliferation ,data=survival_data)
+summary(fit_prolif) 
+
+```
+
+```{r Survival_cutoff_proliferation, echo=FALSE, message=FALSE}
+
+#Find a cutoff based on a 2-component GMM to binarize Phentotype scores before studying survival
+get_cutoff_GMM <- function(marker){
+  gmm_model <-Mclust(marker,G=2)
+  classif <- gmm_model$classification
+  if (diff(gmm_model$parameters$mean)>0){
+    cutoff <- mean(max(marker[classif==1]),min(marker[classif==2]))
+  } else {
+    cutoff <- mean(max(marker[classif==2]),min(marker[classif==1]))
+  }
+  return(cutoff)
+}
+
+print('Survival Analysis with binarized Proliferation')
+
+#With a threshold derived from median
+print('With a threshold derived from median')
+cutoff <- median(survival_data$Proliferation)
+survival_data %<>%  mutate(Proliferation_bin_med = if_else(Proliferation > cutoff,1,0))
+
+fit_p <- survfit(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Proliferation_bin_med ,data=survival_data)
+diff_p <- survdiff(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Proliferation_bin_med ,data=survival_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>% as.numeric
+ggsurvplot(fit_p, conf.int = T, 
+           legend.title='Prolif. Group', 
+           legend.labs=c(paste0('Low\n(',sum(survival_data$Proliferation_bin_med==0),' indiv.)'),
+                         paste0('High\n(',sum(survival_data$Proliferation_bin_med==1),' indiv.)')),
+           pval = pval_p, pval.coord=c(30,0.65),
+           pval.method = T, pval.method.coord=c(30,0.7),
+           risk.table = F, 
+           title=paste0('Survival Curves Based on Proliferation Scores\n(',round(cutoff, digits = 3),' cutoff)'), 
+           ylim=c(0.5,1), 
+           palette = c('lightcoral','red4'))
+
+#With a threshold derived from GMM
+print('With GMM threshold')
+cutoff <- get_cutoff_GMM(survival_data$Proliferation)
+survival_data <-  mutate(survival_data, Proliferation_bin_GMM = if_else(Proliferation > cutoff,1,0))
+print(cutoff)
+print('Proliferation subtype repartition')
+table(survival_data$Proliferation_bin_GMM)
+
+fit_p <- survfit(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Proliferation_bin_GMM ,data=survival_data)
+diff_p <- survdiff(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Proliferation_bin_GMM ,data=survival_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>% as.numeric
+ggsurvplot(fit_p, conf.int = T, 
+           legend.title='Prolif. Group', 
+           legend.labs=c(paste0('Low\n(',sum(survival_data$Proliferation_bin_GMM==0),' indiv.)'),
+                         paste0('High\n(',sum(survival_data$Proliferation_bin_GMM==1),' indiv.)')),
+           pval = pval_p, pval.coord=c(30,0.65),
+           pval.method = T, pval.method.coord=c(30,0.7),
+           risk.table = F, 
+           title=paste0('Survival Curves Based on Proliferation Scores\n(',round(cutoff, digits = 3),' cutoff)'), 
+           ylim=c(0.5,1), 
+           palette = c('lightcoral','red4'))
+
+```
+
+...and Apoptosis
+
+```{r Survival_cutoff_apoptosis, echo=FALSE, message=FALSE}
+
+print('Survival Analysis with binarized Apoptosis')
+
+#With a threshold derived from median
+print('With a threshold derived from median')
+cutoff <- median(survival_data$Apoptosis)
+survival_data %<>%  mutate(Apoptosis_bin_med = if_else(Apoptosis > cutoff,1,0))
+
+fit_p <- survfit(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Apoptosis_bin_med ,data=survival_data)
+diff_p <- survdiff(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Apoptosis_bin_med ,data=survival_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>% as.numeric
+ggsurvplot(fit_p, conf.int = T, 
+           legend.title='Apop. Group', 
+           legend.labs=c(paste0('Low\n(',sum(survival_data$Apoptosis_bin_med==0),' indiv.)'),
+                         paste0('High\n(',sum(survival_data$Apoptosis_bin_med==1),' indiv.)')),
+           pval = pval_p, pval.coord=c(30,0.65),
+           pval.method = T, pval.method.coord=c(30,0.7),
+           risk.table = F, 
+           title=paste0('Survival Curves Based on Apoptosis Scores\n(',round(cutoff, digits = 3),' cutoff)'), 
+           ylim=c(0.5,1), 
+           palette = c('darkslategray4','royalblue4'))
+
+#With a threshold derived from GMM
+print('With GMM threshold')
+cutoff <- get_cutoff_GMM(survival_data$Apoptosis)
+survival_data <-  mutate(survival_data, Apoptosis_bin_GMM = if_else(Apoptosis > cutoff,1,0))
+print(cutoff)
+print('Apoptosis subtype repartition')
+table(survival_data$Apoptosis_bin_GMM)
+
+fit_p <- survfit(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Apoptosis_bin_GMM ,data=survival_data)
+diff_p <- survdiff(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ Apoptosis_bin_GMM ,data=survival_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>% as.numeric
+ggsurvplot(fit_p, conf.int = T, 
+           legend.title='Apop. Group', 
+           legend.labs=c(paste0('Low\n(',sum(survival_data$Apoptosis_bin_GMM==0),' indiv.)'),
+                         paste0('High\n(',sum(survival_data$Apoptosis_bin_GMM==1),' indiv.)')),
+           pval = pval_p, pval.coord=c(30,0.65),
+           pval.method = T, pval.method.coord=c(30,0.7),
+           risk.table = F, 
+           title=paste0('Survival Curves Based on Apoptosis Scores\n(',round(cutoff, digits = 3),' cutoff)'), 
+           ylim=c(0.5,1), 
+           palette = c('darkslategray4','royalblue4'))
+
+```
+
+And with a combination
+
+```{r Survival_4, echo=FALSE, message=FALSE, eval=TRUE}
+survival_data %<>% mutate(ProlifApop=paste0(Proliferation_bin_GMM,Apoptosis_bin_GMM))
+
+fit_both <- survfit(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ ProlifApop ,data=survival_data)
+diff_both <- survdiff(Surv(time = OS_MONTHS_lim, event = Status_lim) ~ ProlifApop ,data=survival_data)
+pval_both <- formatC(1 - pchisq(diff_both$chisq, length(diff_both$n) - 1), format="e",digits=2) %>% as.numeric
+
+ggsurvplot(fit_both, conf.int = T, censor=T,
+           legend.title='Comb. Group', 
+           legend.labs=c(paste0('Low P. & Low A. (',sum(survival_data$ProlifApop=="00"),' indiv.)'),
+                         paste0('Low P. & High A. (',sum(survival_data$ProlifApop=="01"),' indiv.)'),
+                         paste0('High P. & Low A. (',sum(survival_data$ProlifApop=="10"),' indiv.)'),
+                         paste0('High P. & High A. (',sum(survival_data$ProlifApop=="11"),' indiv.)')),
+           pval = pval_both, pval.coord=c(20,0.65),
+           pval.method = T, pval.method.coord=c(20,0.7),
+           risk.table = F, risk.table.y.text=FALSE,
+           tables.height = 0.28, fontsize=3,
+           title='Survival Curves Based on Combined Scores', 
+           ylim=c(0.4,1), palette = c("#984EA3","#4DAF4A","#E41A1C","#377EB8")
+) + guides(colour = guide_legend(nrow = 2))
+
+```
+
