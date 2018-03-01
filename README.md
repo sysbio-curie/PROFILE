@@ -1,6 +1,9 @@
 # Instantiation of patient-specific logical models
 
-This is a repository of data, code and analyses related to the paper "Instantiation of Patient-Specific Logical Models With Multi-Omics Data Allows Clinical Stratification of Patients"
+This is a repository of data, code and analyses related to the paper "Instantiation of Patient-Specific Logical Models With Multi-Omics Data Allows Clinical Stratification of Patients". 
+The paper can accessed here: TBA.
+
+This repository can be cited with its own DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1186270.svg)](https://doi.org/10.5281/zenodo.1186270)
 
 ## Getting Started
 
