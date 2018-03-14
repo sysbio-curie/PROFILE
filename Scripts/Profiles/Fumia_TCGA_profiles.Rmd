@@ -37,7 +37,7 @@ rename <- dplyr::rename
 select <- dplyr::select
 ```
 
-# Independant omics profiles
+# Independent omics profiles
 
 ## TCGA dataset recap
 
