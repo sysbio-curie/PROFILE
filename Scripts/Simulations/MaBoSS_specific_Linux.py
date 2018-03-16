@@ -59,9 +59,9 @@ if args.num_nodes is not None:
     if args.num_nodes<=64:
         maboss_exec = base_path+"MaBoSS/Linux/MaBoSS"
     elif args.num_nodes<=150:
-		maboss_exec = base_path+"MaBoSS/Linux/MaBoSS_150n"
-	else:
-		print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
+        maboss_exec = base_path+"MaBoSS/Linux/MaBoSS_150n"
+    else:
+        print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
 
 if not os.path.isfile(maboss_exec):
     print("Relevant MaBoSS executable is not available")
@@ -232,7 +232,7 @@ def perform_MaBoSS_simulation(n_profile, fname, profile_name):
     os.system("tail -n 1 "+path_fname+"/"+fname+"_probtraj_table.csv >> "+path_fname+"/"+fname+"_lastprob_table.csv")
     # extract the output probas from final state distribution in fname+"/"+fname+"_lastprob.csv
     os.system("Rscript "+base_path+"Scripts/Simulations/extract_output_probas.R -i "+path_fname+"/"+fname+"_lastprob_table.csv -o "+path_fname+"/"+fname+"_lastprob -n "+",".join(outputs))
-	# add the number of the simulation to the line finally saved
+    # add the number of the simulation to the line finally saved
     os.system("echo "+str(n_profile)+"\t"+profile_name+" $(tail -n 1 "+path_fname+"/"+fname+"_lastprob.csv) >> "+save_file)
     #Remove temporary files
     os.system("rm "+path_fname+"/*")
