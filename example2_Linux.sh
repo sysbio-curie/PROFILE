@@ -1,5 +1,7 @@
 #!/bin/sh
 
+ulimit -n 3000
+
 model=Fumia2013
 
 #Example 2 pf simulations using mutations as node activity status and normalized RNA as transitions rates with an amplification factor of 100
