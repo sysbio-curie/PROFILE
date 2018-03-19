@@ -59,7 +59,7 @@ if args.num_nodes is not None:
     if args.num_nodes<=64:
         maboss_exec = base_path+"MaBoSS/Mac/MaBoSS"
     elif args.num_nodes<=150:
-		maboss_exec = base_path+"MaBoSS/Mac/MaBoSS_150n"
+        maboss_exec = base_path+"MaBoSS/Mac/MaBoSS_150n"
         else:
             print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
 
