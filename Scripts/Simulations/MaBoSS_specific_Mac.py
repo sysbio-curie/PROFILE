@@ -60,8 +60,8 @@ if args.num_nodes is not None:
         maboss_exec = base_path+"MaBoSS/Mac/MaBoSS"
     elif args.num_nodes<=150:
 		maboss_exec = base_path+"MaBoSS/Mac/MaBoSS_150n"
-	else:
-		print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
+        else:
+            print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
 
 if not os.path.isfile(maboss_exec):
     print("Relevant MaBoSS executable is not available")
