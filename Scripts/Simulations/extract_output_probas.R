@@ -12,7 +12,7 @@
 ## listOfConForNodes: Associated value to the conditions to analyze
 ## Example: values <- c(1,0,0) Value 1 for Node1, and Value 0 for Node2 and Node3
 
-if(!requireNamespace("optparse")){
+if(!requireNamespace("optparse", quietly = TRUE)){
 	install.packages("optparse")
 }
 
