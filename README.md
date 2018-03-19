@@ -9,6 +9,10 @@ This repository can be cited with its own DOI: [![DOI](https://zenodo.org/badge/
 
 This set of files and scripts is supposed to be self-sufficient. Please download data and scripts and follow instructions
 
+### Requirements
+- Python version 3.0 or greater
+- Python's package pandas
+- Perl
 
 ## Patient-specific instantiation pipeline
 
