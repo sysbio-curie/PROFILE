@@ -1,5 +1,7 @@
 #!/bin/sh
 
+ulimit -n 3000
+ 
 model=Fumia2013
 
 #Example 1 of simulations using mutations and CNA information of METABRIC cohort as node activity status
