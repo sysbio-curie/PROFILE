@@ -13,6 +13,8 @@ This set of files and scripts is supposed to be self-sufficient. Please download
 - Python version 3.0 or greater
 - Python's package pandas
 - Perl
+- R
+- MaBoSS requires: flex, bison, gcc and g++
 
 ## Patient-specific instantiation pipeline
 
