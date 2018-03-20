@@ -21,20 +21,17 @@ futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
 Generate patients profiles from BRCA METABRIC data for further logical modelling.
 
 ```{r packages_and_utilities, echo=FALSE, message=FALSE}
-library(tidyverse)
-library(VennDiagram)
-library(networkD3)
-library(knitr)
-library(gridExtra)
-library(mclust)
-library(diptest)
-library(moments)
-library(magrittr)
+
+list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
 tbl_to_df <- function(x){
   x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
 } 
 rename <- dplyr::rename
 select <- dplyr::select
+
 ```
 
 # Independent omics profiles
