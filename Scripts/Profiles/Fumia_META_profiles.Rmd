@@ -22,9 +22,9 @@ Generate patients profiles from BRCA METABRIC data for further logical modelling
 
 ```{r packages_and_utilities, echo=FALSE, message=FALSE}
 
+if (!require("pacman")) install.packages("pacman")
 list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr")
-new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
-if(length(new.packages)) install.packages(new.packages)
+pacman::p_load(list.of.packages, character.only = TRUE)
 
 tbl_to_df <- function(x){
   x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
