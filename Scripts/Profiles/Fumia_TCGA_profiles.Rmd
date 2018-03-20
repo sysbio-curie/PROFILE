@@ -21,15 +21,11 @@ futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
 Generate patients profiles from BRCA TCGA data for further logical modelling.
 
 ```{r packages_and_utilities, echo=FALSE, message=FALSE}
-library(tidyverse)
-library(VennDiagram)
-library(networkD3)
-library(knitr)
-library(gridExtra)
-library(mclust)
-library(diptest)
-library(moments)
-library(magrittr)
+
+if (!require("pacman")) install.packages("pacman")
+list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr")
+pacman::p_load(list.of.packages, character.only = TRUE)
+
 tbl_to_df <- function(x){
   x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
 } 
