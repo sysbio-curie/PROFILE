@@ -24,22 +24,22 @@ arg = sys.argv
 parser = argparse.ArgumentParser()
 
 #Required arguments
-parser.add_argument("model", help="name of MaBoSS files (without .cfg or .bnd extension)")
-parser.add_argument("save_file", help="save_file is the name of the text file containing final probabilities of outputs (one simulation by line))")
+parser.add_argument("model", help="name of MaBoSS files, without .cfg or .bnd extension (ex: 'CancerModel')")
+parser.add_argument("save_file", help="save_file is the name of the text file containing final probabilities of outputs, one simulation by line (ex: 'results.txt')")
 
 #Optional arguments for computation parameters
-parser.add_argument("-n","--num_nodes", type=int, help="nb of nodes in the MaBoSS exec file (ex: 100 to use MaBoSS_100n)")
-parser.add_argument("-p","--num_processes", type=int, help="nb of parallel processes during simulations")
+parser.add_argument("-n","--num_nodes", type=int, help="nb of nodes for the MaBoSS version (ex: '100' to use MaBoSS_100n designed for model with 100 nodes)")
+parser.add_argument("-p","--num_processes", type=int, help="nb of parallel processes during simulations (ex: '3' if you want to simulate 3 profiles at the same time)")
 
 #Optional arguments for instantation parameters
-parser.add_argument("-i","--inputs", help="initial probabilities of inputs (alternatively called source nodes, i.e not regulated nodes) are set to the specified value, otherwise it will be 0.5")
-parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file")
-parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files")
+parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alternatively called source nodes (i.e not regulated nodes), are set to the specified value, otherwise it will be 0.5 (ex: 'Nutrients:0.3,Androgen:0.6' results in 'Nutrients = 0.3[1], 0.7[0]' and same for Androgen)")
+parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
+parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
 parser.add_argument("-c","--init_cond", help="name of the csv file containing perturbation profiles to define node initial conditions: one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 (NA tolerated) or continuous [0,1] information")
 parser.add_argument("-rb","--rates_basic", help="name of the csv file containing perturbation profiles to define reaction rates based on node normalized state: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
 parser.add_argument("-ra","--rates_advanced", help="name of the csv file containing perturbation profiles to define reaction rates based on activators/inhibitors nodes states: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
-parser.add_argument("-rf","--rates_factor", help="multiplication factor for rates when using one of the 'rates' method")
+parser.add_argument("-rf","--rates_factor", help="multiplication factor for rates when using one of the 'rates' methods (ex: '100' in order to have rates between 1/100 and 100)")
 
 args = parser.parse_args()
 
