@@ -32,7 +32,7 @@ parser.add_argument("-n","--num_nodes", type=int, help="nb of nodes in the MaBoS
 parser.add_argument("-p","--num_processes", type=int, help="nb of parallel processes during simulations")
 
 #Optional arguments for instantation parameters
-parser.add_argument("-i","--inputs", help="initial probabilities of inputs (alternatively called source nodes, i.e not regulated nodes) are set to the specified value, othewise it will be 0.5")
+parser.add_argument("-i","--inputs", help="initial probabilities of inputs (alternatively called source nodes, i.e not regulated nodes) are set to the specified value, otherwise it will be 0.5")
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files")
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
@@ -209,11 +209,11 @@ path_model=path_model+"_"+suffix
 #Prepare simulation
 #Define outputs as external nodes
 for output in outputs:
-    os.system("sed -i '' 's/^"+output+".is_internal *= *TRUE;/"+output+".is_internal=FALSE;/g' "+path_model+"'.cfg'")
+    os.system("sed -i '' 's/^\[?"+output+"\]?\.is_internal *= *(TRUE|1);/"+output+".is_internal=FALSE;/g' "+path_model+"'.cfg'")
     
 #Define proper initial conditions for inputs and constant nodes (implicit inputs)
 for input_item, input_value in dict(input_nodes, **constant_nodes).items():
-    os.system("sed -i '' '/^"+input_item+".istate *=/d' "+path_model+".cfg")
+    os.system("sed -i '' '/^\[?"+input_item+"\]?\.istate ?=/d' "+path_model+".cfg")
     os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
 
 #Define function used to perform the simulation itself and process the output
@@ -266,7 +266,7 @@ else:
             patient_dict_red = { k:v for k, v in patient_dict.items() if not numpy.isnan(v) }
             for node, value in patient_dict_red.items():
                 value_red = round(value,5)
-                os.system("sed -i '' '/^\["+node+"\].istate/d' "+path_fname+"'.cfg'")
+                os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
                 os.system("echo '["+node+"].istate = "+str(value_red)+"[1], "+str(1-value_red)+"[0];' >> "+path_fname+".cfg")
         
         # set rates profiles        
@@ -283,7 +283,7 @@ else:
                     os.system("sed -i '' 's/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(up_value*original_up)+";/g' "+path_fname+"'.cfg'")
                     os.system("sed -i '' 's/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"="+str(down_value*original_down)+";/g' "+path_fname+"'.cfg'")
                     value_red = round(value,5)
-                    os.system("sed -i '' '/^\["+node+"\].istate/d' "+path_fname+"'.cfg'")
+                    os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
                     os.system("echo '["+node+"].istate = "+str(value_red)+"[1], "+str(1-value_red)+"[0];' >> "+path_fname+".cfg")
                     
         # set rates_advanced profiles         
@@ -307,7 +307,7 @@ else:
             inputs_to_specify = list(set(input_nodes.keys()) & set(rates_nodes))
             for node in inputs_to_specify:
                 value = round(rates_dict_patient[node],5)
-                os.system("sed -i '' '/^\["+node+"\].istate/d' "+path_fname+"'.cfg'")
+                os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
                 os.system("echo '["+node+"].istate = "+str(value)+"[1], "+str(1-value)+"[0];' >> "+path_fname+".cfg")
 
         # set mutants profiles 
@@ -315,7 +315,7 @@ else:
             mutants_list=mutants_dict[patient_id]
             mutants_list_red={ k:v for k, v in mutants_list.items() if not numpy.isnan(v) }
             for node, value in mutants_list_red.items():
-                os.system("sed -i '' '/^\["+node+"\].istate/d' "+path_fname+"'.cfg'")
+                os.system("sed -i '' '/^\[?"+node+"\].\.istate/d' "+path_fname+"'.cfg'")
                 if value==0:
                     os.system("sed -i '' 's/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"=0;/g' "+path_fname+"'.cfg'")
                     os.system("echo '["+node+"].istate=0[1], 1[0];' >> "+path_fname+".cfg")
