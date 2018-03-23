@@ -1,2 +1,5 @@
-n_profile Patient_ID Time Apoptosis PTEN TH
-0 WT 19.98 0.966 1 0
+n_profile Patient_ID Time Proliferation Apoptosis PTEN TH
+0 MB-0006 19.99 0 0.969 1 0
+1 MB-0000 19.99 0.004 0.933 1 0
+2 MB-0002 19.99 0.069 0.881 1 0
+3 MB-0005 19.99 0 0.768578 0.997 8e-04
