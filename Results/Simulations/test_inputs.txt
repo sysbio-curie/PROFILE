@@ -1,0 +1,2 @@
+n_profile Patient_ID Time Apoptosis PTEN TH
+0 WT 19.98 0.966 1 0
