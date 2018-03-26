@@ -566,6 +566,7 @@ plot_mapping <- function(plot_data, gene){
   grid.arrange(plot_up, plot_down)
 }
 
+# Define a set of genes for which there are values on each of the plotted datasets. If the gene only has NAs on one dataset, the plot will show an error.
 plot_mapping(plot_data,"AKT1")
 plot_mapping(plot_data,"TP53")
 
@@ -588,7 +589,11 @@ common_patients <- intersect(rownames(METAmodel_CNA_prof), rownames(METAmodel_mu
 
 incons <- which(METAmodel_mut_prof[common_patients, common_genes]==0 & METAmodel_CNA_prof[common_patients, common_genes]==1 | METAmodel_mut_prof[common_patients, common_genes]==1 & METAmodel_CNA_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col], Mut=diag(as.matrix(METAmodel_mut_prof[Patient,Gene])), CNA=diag(as.matrix(METAmodel_CNA_prof[Patient,Gene]))) %>% select(Patient,Gene, Mut, CNA)
 
-kable(incons)
+if (nrow(incons)==0){
+  print("No mutation/CNA binary inconsistencies")
+}else{
+  kable(incons)
+}
 ```
 
 In case of ambiguity, pritority is given to mutations over CNA
@@ -627,7 +632,11 @@ common_patients <- intersect(rownames(METAmodel_CNA_prof), rownames(METAmodel_RN
 
 incons <- which(METAmodel_CNA_prof[common_patients, common_genes]==0 & METAmodel_RNA_prof[common_patients, common_genes]==1 | METAmodel_CNA_prof[common_patients, common_genes]==1 & METAmodel_RNA_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  CNA=diag(as.matrix(METAmodel_CNA_prof[Patient,Gene])), RNA=diag(as.matrix(METAmodel_RNA_prof[Patient,Gene]))) %>% select(Patient,Gene,CNA, RNA)
 
-kable(incons)
+if (nrow(incons)==0){
+  print("No RNA/CNA binary inconsistencies")
+}else{
+  kable(incons)
+}
 
 ```
 
@@ -664,8 +673,13 @@ common_patients <- intersect(rownames(METAmodel_mut_prof), rownames(METAmodel_RN
 
 incons <- which(METAmodel_mut_prof[common_patients, common_genes]==0 & METAmodel_RNA_prof[common_patients, common_genes]==1 | METAmodel_mut_prof[common_patients, common_genes]==1 & METAmodel_RNA_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  Mut=diag(as.matrix(METAmodel_mut_prof[Patient,Gene])), RNA=diag(as.matrix(METAmodel_RNA_prof[Patient,Gene]))) %>% select(Patient,Gene,Mut,RNA)
 
-kable(incons)
+if (nrow(incons)==0){
+  print("No mutations/RNA binary inconsistencies")
+}else{
+  kable(incons)
+}
 
+# Define a set of genes for which there are values on each of the plotted datasets.
 plot_mapping(plot_data,'PIK3CA')
 
 mut_plus_RNA <- function(mutations,expression){
