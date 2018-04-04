@@ -7,6 +7,8 @@ jonas.beal@curie.fr
 """
 #%% Imports
 
+#This script is an old version. Should be replaced by MaBoSS_specific.py, both for Mac and Linux users. 
+
 # Imports and tests
 import sys
 import os
