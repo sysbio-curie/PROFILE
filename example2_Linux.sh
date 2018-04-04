@@ -21,7 +21,7 @@ list10="GFs,CytoC_APAF1,TNFalpha,MXI1,PDK1,Cdh1_UbcH10,p70S6kab,BCL2"
 
 i=1
 for listnodes in $list1 $list2 $list3 $list4 $list5 $list6 $list7 $list8 $list9 $list10; do
-    python3 Scripts/Simulations/MaBoSS_specific_Linux.py $model -n 98 -p 3 "Results/Simulations/resultsN_"$sim_case"_"$i".txt" -o $listnodes -s "list"$i"_"$sim_case -m "Results/Profiles/Fumia_META_mutCNA.csv" -rb "Results/Profiles/Fumia_META_RNA_norm.csv" -rf 100
+    python3 Scripts/Simulations/MaBoSS_specific.py $model -sy Linux -p 3 "resultsN_"$sim_case"_"$i".txt" -o $listnodes -s "list"$i"_"$sim_case -m "Results/Profiles/Fumia_META_mutCNA.csv" -rb "Results/Profiles/Fumia_META_RNA_norm.csv" -rf 100
     i=$(echo $i+1 | bc)
 done
 

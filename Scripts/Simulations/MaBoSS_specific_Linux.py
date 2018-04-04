@@ -40,6 +40,7 @@ parser.add_argument("-c","--init_cond", help="name of the csv file containing pe
 parser.add_argument("-rb","--rates_basic", help="name of the csv file containing perturbation profiles to define reaction rates based on node normalized state: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
 parser.add_argument("-ra","--rates_advanced", help="name of the csv file containing perturbation profiles to define reaction rates based on activators/inhibitors nodes states: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
 parser.add_argument("-rf","--rates_factor", help="multiplication factor for rates when using one of the 'rates' methods (ex: '100' in order to have rates between 1/100 and 100)")
+
 args = parser.parse_args()
 
 #%% Process Arguments

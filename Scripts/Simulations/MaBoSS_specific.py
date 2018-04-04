@@ -28,13 +28,20 @@ parser.add_argument("model", help="name of MaBoSS files, without .cfg or .bnd ex
 parser.add_argument("save_file", help="save_file is the name of the text file containing final probabilities of outputs, one simulation by line (ex: 'results.txt')")
 
 #Optional arguments for computation parameters
-parser.add_argument("-n","--num_nodes", type=int, help="nb of nodes for the MaBoSS version (ex: '100' to use MaBoSS_100n designed for model with 100 nodes)")
+parser.add_argument("-sy","--system", help="Computer OS, eiter Mac or Linux (ex: 'Mac' is you are using MacOS, 'Linux' is the default)")
 parser.add_argument("-p","--num_processes", type=int, help="nb of parallel processes during simulations (ex: '3' if you want to simulate 3 profiles at the same time)")
 
 #Optional arguments for instantation parameters
+
+#General arguments, for all patients
 parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alternatively called source nodes (i.e not regulated nodes), are set to the specified value, otherwise it will be 0.5 (ex: 'Nutrients:0.3,Androgen:0.6' results in 'Nutrients = 0.3[1], 0.7[0]' and same for Androgen)")
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
+
+#Bypass general arguments providing directly a proper CFG file with all information about inputs, outputs, define internal nodes and initial states
+parser.add_argument("-cfg","--CFGbypass", type=bool, help="True if you want to ignore inputs and outputs from general arguments and extract inputs, outputs, internal nodes and initial states' information directly from the provided CFG file (ex: '-cfg True' or '-cfg 1').")
+
+#Patient-specific arguments
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
 parser.add_argument("-c","--init_cond", help="name of the csv file containing perturbation profiles to define node initial conditions: one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 (NA tolerated) or continuous [0,1] information")
 parser.add_argument("-rb","--rates_basic", help="name of the csv file containing perturbation profiles to define reaction rates based on node normalized state: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
@@ -53,27 +60,21 @@ print("\n")
 # path to script is used to call other scripts in the same folder
 pathtoscript = os.path.dirname(os.path.abspath(os.path.realpath(sys.argv[0])))
 base_path = os.path.dirname(os.path.dirname(pathtoscript))+"/"
+os.chdir(base_path)
 
-#MaBoSS exec
-if args.num_nodes is not None:
-    if args.num_nodes<=64:
-        maboss_exec = base_path+"MaBoSS/Mac/MaBoSS"
-    elif args.num_nodes<=150:
-        maboss_exec = base_path+"MaBoSS/Mac/MaBoSS_150n"
-    else:
-        print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
+#Check OS
+if args.system is not None:
+    system=args.system
+else:
+    system='Linux'
 
-if not os.path.isfile(maboss_exec):
-    print("Relevant MaBoSS executable is not available")
+if system == 'Linux':
+    sed_string="sed -i "
+elif system == 'Mac':
+    sed_string="sed -i '' "
+else:
+    print("Please use either Linux or Mac OS")
     sys.exit(1)
-
-print("MaBoSS executable: "+maboss_exec)
-
-# number of parallel processes
-if args.num_processes is not None:
-    nbprocesses=args.num_processes
-else: nbprocesses=1
-print("Number of parallel processes: "+str(nbprocesses))
 
 #Check that the model exist or translate it to maboss format if it is a .bnet file
 model=args.model
@@ -91,19 +92,53 @@ if not os.path.isfile(path_model+".bnd"):
 if not os.path.isfile(path_model+".cfg"):
     print(model+".cfg file not found")
     sys.exit(1) 
+    
+#Define the CFGbypass status of the simulation
+if args.CFGbypass is not None:
+    CFGbypass=args.CFGbypass
+else:
+    CFGbypass=False
 
-#Inputs/outputs processing
-#Define constant nodes and input nodes based on .bnd file
+#Define all nodes, constant nodes and input nodes based on .bnd file
 lines = open(path_model+".bnd").readlines()
 constant_nodes = dict()
 input_nodes = dict()
+nodes = list()
 for i in range(len(lines)):
-    if re.search("Node ", lines[i]):
-        node_name = lines[i].split(" ")[1]        
+    if re.search("^Node .*{$", lines[i]):
+        node_name = re.split(" *{",lines[i])[0].split(" ")[1]        
+        nodes.append(node_name)
         if re.search("  logic = [01];", lines[i+1]):
             constant_nodes[node_name] = int(lines[i+1][-3])
         if re.search("logic = [(]?"+re.escape(node_name)+"[)]?;",lines[i+1]):
              input_nodes[node_name] = 0.5 #Unless otherwise specified, we define a 0.5 default value for input 
+
+#Define save_file
+save_file=base_path+"Results/Simulations/"+args.save_file
+
+#Define number of nodes
+nbnodes=len(nodes)
+
+#MaBoSS exec
+if nbnodes<=64:
+    maboss_exec = base_path+"MaBoSS/"+system+"/MaBoSS"
+elif nbnodes<=150:
+    maboss_exec = base_path+"MaBoSS/"+system+"/MaBoSS_150n"
+else:
+    print("Your model has more than 150 nodes, please recompile MaBoSS with the number of nodes of your model. See MaBoSS compiling help: http://maboss.curie.fr/")
+
+if not os.path.isfile(maboss_exec):
+    print("Relevant MaBoSS executable is not available")
+    sys.exit(1)
+
+print("MaBoSS executable: "+maboss_exec)
+os.system("chmod +x "+maboss_exec)
+
+# number of parallel processes
+if args.num_processes is not None:
+    nbprocesses=args.num_processes
+else: nbprocesses=1
+print("Number of parallel processes: "+str(nbprocesses))
 
 #Use inputs argument to modify previous dict
 if args.inputs is not None:
@@ -190,40 +225,46 @@ if args.init_cond is not None:
 if not all(v is None for v in [args.mutants, args.rates_basic, args.rates_advanced, args.init_cond]):
     cases_common = list(set.intersection(*map(set, cases_common)))
 
-#Define save_file  and number of nodes
-save_file=args.save_file
-nbnodes=args.num_nodes
-
 #Define suffix
 if args.suffix is not None:
     suffix = args.suffix
 else:
     suffix = "classic"
 print("Suffix: "+suffix)
-
+    
+#Prepare simulation copying model files for subsequent modifications
 os.system("cp "+path_model+".bnd "+path_model+"_"+suffix+".bnd")
 os.system("cp "+path_model+".cfg "+path_model+"_"+suffix+".cfg")
 model=model+"_"+suffix
 path_model=path_model+"_"+suffix
-    
-#Prepare simulation
+
 #Define outputs as external nodes
-for output in outputs:
-    os.system("sed -i '' 's/^\[?"+output+"\]?\.is_internal *= *(TRUE|1);/"+output+".is_internal=FALSE;/g' "+path_model+"'.cfg'")
-    
+if not CFGbypass:
+    for node in nodes:
+        os.system(sed_string+"'/^\[*"+node+"\]*\.is_internal *= */d' "+path_model+".cfg")
+        if node in outputs:
+            os.system("echo '"+node+".is_internal = FALSE;' >> "+path_model+".cfg")
+        else:
+            os.system("echo '"+node+".is_internal = TRUE;' >> "+path_model+".cfg")
+
 #Define proper initial conditions for inputs and constant nodes (implicit inputs)
-for input_item, input_value in dict(input_nodes, **constant_nodes).items():
-    os.system("sed -i '' '/^\[?"+input_item+"\]?\.istate ?=/d' "+path_model+".cfg")
-    os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
+if not CFGbypass:
+    for input_item, input_value in dict(input_nodes, **constant_nodes).items():
+        os.system(sed_string+"'/^\[*"+input_item+"\]*\.istate *=/d' "+path_model+".cfg")
+        os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
 
 #Define function used to perform the simulation itself and process the output
 def perform_MaBoSS_simulation(n_profile, fname, profile_name):
-    path_fname=path_model+"_"+str(n_profile)
+    if profile_name is not "WT":
+        path_fname=path_model+"_"+str(n_profile)
+    else:
+        path_fname=path_model
     
     string_opt=path_fname+".bnd " + path_fname + ".cfg -mb " + maboss_exec
-    
+    os.system("chmod +x "+path_fname+".bnd")
+    os.system("chmod +x "+path_fname+".cfg")
     os.chdir(os.path.dirname(path_model))
-    os.system(base_path+"Scripts/Simulations/MBSS_FormatTable.pl " + string_opt)
+    os.system("perl "+base_path+"Scripts/Simulations/MBSS_FormatTable.pl " + string_opt)
     os.chdir(current_wd)
     #subprocess.Popen([base_path+"Scripts/Simulations/MBSS_FormatTable.pl " + string_opt, cwd=os.path.dirname(path_model))
     
@@ -266,7 +307,7 @@ else:
             patient_dict_red = { k:v for k, v in patient_dict.items() if not numpy.isnan(v) }
             for node, value in patient_dict_red.items():
                 value_red = round(value,5)
-                os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
+                os.system(sed_string+"'/^\[*"+node+"\]*\.istate/d' "+path_fname+"'.cfg'")
                 os.system("echo '["+node+"].istate = "+str(value_red)+"[1], "+str(1-value_red)+"[0];' >> "+path_fname+".cfg")
         
         # set rates profiles        
@@ -280,10 +321,10 @@ else:
                     down_value = 1/up_value
                     original_up = float(os.popen("grep -E '^\$u_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
                     original_down = float(os.popen("grep -E '^\$d_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
-                    os.system("sed -i '' 's/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(up_value*original_up)+";/g' "+path_fname+"'.cfg'")
-                    os.system("sed -i '' 's/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"="+str(down_value*original_down)+";/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(up_value*original_up)+";/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"="+str(down_value*original_down)+";/g' "+path_fname+"'.cfg'")
                     value_red = round(value,5)
-                    os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'/^\[*"+node+"\]*\.istate/d' "+path_fname+"'.cfg'")
                     os.system("echo '["+node+"].istate = "+str(value_red)+"[1], "+str(1-value_red)+"[0];' >> "+path_fname+".cfg")
                     
         # set rates_advanced profiles         
@@ -295,19 +336,19 @@ else:
                 if not numpy.isnan(acti_value):
                     original_up = float(os.popen("grep -E '^\$u_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
                     rate_value = round(rates_f**(2*acti_value-1),5)
-                    os.system("sed -i '' 's/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(rate_value*original_up)+";/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(rate_value*original_up)+";/g' "+path_fname+"'.cfg'")
             
             for node, value in model_inhibitors.items():
                 inhi_value = numpy.nanmean([rates_dict_patient[node_name] for node_name in value])
                 if not numpy.isnan(inhi_value):
                     original_down = float(os.popen("grep -E '^\$d_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
                     rate_value = round(rates_f**(2*inhi_value-1),5)
-                    os.system("sed -i '' 's/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"="+str(rate_value*original_down)+";/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"="+str(rate_value*original_down)+";/g' "+path_fname+"'.cfg'")
             
             inputs_to_specify = list(set(input_nodes.keys()) & set(rates_nodes))
             for node in inputs_to_specify:
                 value = round(rates_dict_patient[node],5)
-                os.system("sed -i '' '/^\[?"+node+"\]?\.istate/d' "+path_fname+"'.cfg'")
+                os.system(sed_string+"'/^\[*"+node+"\]*\.istate/d' "+path_fname+"'.cfg'")
                 os.system("echo '["+node+"].istate = "+str(value)+"[1], "+str(1-value)+"[0];' >> "+path_fname+".cfg")
 
         # set mutants profiles 
@@ -315,12 +356,12 @@ else:
             mutants_list=mutants_dict[patient_id]
             mutants_list_red={ k:v for k, v in mutants_list.items() if not numpy.isnan(v) }
             for node, value in mutants_list_red.items():
-                os.system("sed -i '' '/^\[?"+node+"\].\.istate/d' "+path_fname+"'.cfg'")
+                os.system(sed_string+"'/^\[*"+node+"\]*.\.istate/d' "+path_fname+"'.cfg'")
                 if value==0:
-                    os.system("sed -i '' 's/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"=0;/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"=0;/g' "+path_fname+"'.cfg'")
                     os.system("echo '["+node+"].istate=0[1], 1[0];' >> "+path_fname+".cfg")
                 elif value==1:
-                    os.system("sed -i '' 's/d_"+node+"= *= *[0-9]*\.*[0-9]*;/d_"+node+"=0;/g' "+path_fname+"'.cfg'")
+                    os.system(sed_string+"'s/d_"+node+"= *= *[0-9]*\.*[0-9]*;/d_"+node+"=0;/g' "+path_fname+"'.cfg'")
                     os.system("echo '["+node+"].istate=1[1], 0[1];' >> "+path_fname+".cfg")
                 
         while len(previous)<i-(nbprocesses-1):
@@ -332,5 +373,5 @@ else:
     for process in processes:
         process.join()
         
-    os.system("rm "+path_model+".bnd")
-    os.system("rm "+path_model+".cfg")
+os.system("rm "+path_model+".bnd")
+os.system("rm "+path_model+".cfg")
