@@ -38,8 +38,8 @@ parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alte
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
 
-#Bypass general arguments providing directly a proper CFG file with all information about inputs, outputs and initial states
-parser.add_argument("-cfg","--CFGbypass", type=bool, help="True if you want to ignore inputs and outputs from general arguments and extract inputs, outputs  and initial states' information directly from the provided CFG file")
+#Bypass general arguments providing directly a proper CFG file with all information about inputs, outputs, define internal nodes and initial states
+parser.add_argument("-cfg","--CFGbypass", type=bool, help="True if you want to ignore inputs and outputs from general arguments and extract inputs, outputs, internal nodes and initial states' information directly from the provided CFG file")
 
 #Patient-specific arguments
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
