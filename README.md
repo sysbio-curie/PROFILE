@@ -42,7 +42,8 @@ A minimal example of simulations can be found in the following *shell* script. T
 ```
 model=Fumia2013 
 sim_case = META_mutations_CNA_asMutants
-python3 Scripts/Simulations/MaBoSS_specific_Mac.py $model 2 "Results/Simulations/results_"$sim_case".txt" -s $sim_case -m "Results/Profiles/Fumia_META_mutCNA.csv"
+python3 Scripts/Simulations/MaBoSS_specific_Mac.py $model 2 "Results/Simulations/results_"$sim_case".txt"
+    -s $sim_case -m "Results/Profiles/Fumia_META_mutCNA.csv"
 ```
 
 This example is available in **example1.sh**, either in MacOS or Linux distribution versions.
