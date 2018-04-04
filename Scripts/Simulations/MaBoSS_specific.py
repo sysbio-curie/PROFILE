@@ -38,8 +38,8 @@ parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alte
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
 
-#Bypass general arguments providing directly a proper cfg file with all information about inputs and outputs
-parser.add_argument("-bp","--bypass", type=bool, help="True if you want to ignore general arguments and extract inputs/outputs information directly from the cfg file")
+#Bypass general arguments providing directly a proper CFG file with all information about inputs, outputs and initial states
+parser.add_argument("-cfg","--CFGbypass", type=bool, help="True if you want to ignore inputs and outputs from general arguments and extract inputs, outputs  and initial states' information directly from the provided CFG file")
 
 #Patient-specific arguments
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
@@ -93,11 +93,11 @@ if not os.path.isfile(path_model+".cfg"):
     print(model+".cfg file not found")
     sys.exit(1) 
     
-#Define the bypass status of the simulation
-if args.bypass is not None:
-    bypass=args.bypass
+#Define the CFGbypass status of the simulation
+if args.CFGbypass is not None:
+    CFGbypass=args.CFGbypass
 else:
-    bypass=False
+    CFGbypass=False
 
 #Define all nodes, constant nodes and input nodes based on .bnd file
 lines = open(path_model+".bnd").readlines()
@@ -239,7 +239,7 @@ model=model+"_"+suffix
 path_model=path_model+"_"+suffix
 
 #Define outputs as external nodes
-if not bypass:
+if not CFGbypass:
     for node in nodes:
         os.system(sed_string+"'/^\[*"+node+"\]*\.is_internal *= */d' "+path_model+".cfg")
         if node in outputs:
@@ -248,7 +248,7 @@ if not bypass:
             os.system("echo '"+node+".is_internal = TRUE;' >> "+path_model+".cfg")
 
 #Define proper initial conditions for inputs and constant nodes (implicit inputs)
-if not bypass:
+if not CFGbypass:
     for input_item, input_value in dict(input_nodes, **constant_nodes).items():
         os.system(sed_string+"'/^\[*"+input_item+"\]*\.istate *=/d' "+path_model+".cfg")
         os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
