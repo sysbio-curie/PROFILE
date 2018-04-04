@@ -32,9 +32,16 @@ parser.add_argument("-sy","--system", help="Computer OS, eiter Mac or Linux (ex:
 parser.add_argument("-p","--num_processes", type=int, help="nb of parallel processes during simulations (ex: '3' if you want to simulate 3 profiles at the same time)")
 
 #Optional arguments for instantation parameters
+
+#General arguments, for all patients
 parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alternatively called source nodes (i.e not regulated nodes), are set to the specified value, otherwise it will be 0.5 (ex: 'Nutrients:0.3,Androgen:0.6' results in 'Nutrients = 0.3[1], 0.7[0]' and same for Androgen)")
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
+
+#Bypass general arguments providing directly a proper cfg file with all information about inputs and outputs
+parser.add_argument("-bp","--bypass", type=bool, help="True if you want to ignore general arguments and extract inputs/outputs information directly from the cfg file")
+
+#Patient-specific arguments
 parser.add_argument("-m","--mutants", help="name of the csv file containing perturbation profiles to define node mutants (also called node activity status): one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 information (NA tolerated)")
 parser.add_argument("-c","--init_cond", help="name of the csv file containing perturbation profiles to define node initial conditions: one profile/patient by line, with multiple genes separated by a comma. Binary 0/1 (NA tolerated) or continuous [0,1] information")
 parser.add_argument("-rb","--rates_basic", help="name of the csv file containing perturbation profiles to define reaction rates based on node normalized state: one profile/patient by line, with multiple genes separated by a comma. Continuous [0,1] information")
@@ -85,6 +92,12 @@ if not os.path.isfile(path_model+".bnd"):
 if not os.path.isfile(path_model+".cfg"):
     print(model+".cfg file not found")
     sys.exit(1) 
+    
+#Define the bypass status of the simulation
+if args.bypass is not None:
+    bypass=args.bypass
+else:
+    bypass=False
 
 #Define all nodes, constant nodes and input nodes based on .bnd file
 lines = open(path_model+".bnd").readlines()
@@ -226,17 +239,19 @@ model=model+"_"+suffix
 path_model=path_model+"_"+suffix
 
 #Define outputs as external nodes
-for node in nodes:
-    os.system(sed_string+"'/^\[*"+node+"\]*\.is_internal *= */d' "+path_model+".cfg")
-    if node in outputs:
-        os.system("echo '"+node+".is_internal = FALSE;' >> "+path_model+".cfg")
-    else:
-        os.system("echo '"+node+".is_internal = TRUE;' >> "+path_model+".cfg")
-  
+if not bypass:
+    for node in nodes:
+        os.system(sed_string+"'/^\[*"+node+"\]*\.is_internal *= */d' "+path_model+".cfg")
+        if node in outputs:
+            os.system("echo '"+node+".is_internal = FALSE;' >> "+path_model+".cfg")
+        else:
+            os.system("echo '"+node+".is_internal = TRUE;' >> "+path_model+".cfg")
+
 #Define proper initial conditions for inputs and constant nodes (implicit inputs)
-for input_item, input_value in dict(input_nodes, **constant_nodes).items():
-    os.system(sed_string+"'/^\[*"+input_item+"\]*\.istate *=/d' "+path_model+".cfg")
-    os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
+if not bypass:
+    for input_item, input_value in dict(input_nodes, **constant_nodes).items():
+        os.system(sed_string+"'/^\[*"+input_item+"\]*\.istate *=/d' "+path_model+".cfg")
+        os.system("echo '["+input_item+"].istate = "+str(input_value)+"[1], "+str(1-input_value)+"[0];' >> "+path_model+".cfg")   
 
 #Define function used to perform the simulation itself and process the output
 def perform_MaBoSS_simulation(n_profile, fname, profile_name):
