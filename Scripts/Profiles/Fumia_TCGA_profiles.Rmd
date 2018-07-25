@@ -895,51 +895,30 @@ TCGAmodel_mutprot_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_prot_prof)
 
 ```{r write, echo=FALSE, message=FALSE, warning=FALSE}
 
-inverse_mapping <- function(dataset, datatype = 'bin', geneindex_var = geneindex){
-  patients <- rownames(dataset)
-  geneindex_corres <- geneindex_var %>% column_to_rownames(var="V2")
+inverse_mapping <- function(dataset, datatype = 'bin', geneindex_var){
   
-  erased_genes <- list()
-  for (gene in colnames(dataset)){
-    #print(gene)
-    if (!(gene %in% erased_genes)){
-      index <- match(gene, colnames(dataset))
-      node <- geneindex_corres[gene,] %>% as.character
-      family_size <- geneindex_var %>% filter(V1==node) %>% nrow
-      if (family_size==0){
-        stop("Correspondency problem")
-      } else if (family_size==1){
-        colnames(dataset)[index] <- node
-      } else if (family_size>1){
-        family_members <- geneindex_var %>% filter(V1==node) %>% select(V2) %>% unlist %>% as.character
-        family_df <- dataset %>% select(one_of(family_members)) #%>% select_if(~sum(!is.na(.)) > 0)
-        if (ncol(family_df)==1){
-          new_column <- family_df %>% unlist
-          erased_name <- colnames(family_df)
-          dataset <- select(dataset, -one_of(erased_name))
-        } else if (ncol(family_df)>1 & datatype=='bin'){
-          interm <- rowMeans(family_df, na.rm = T)
-          interm[interm!=0 & interm !=1] <- NA
-          interm[is.nan(interm)] <- NA
-          new_column <- interm
-          remove_index <- match(family_members, colnames(dataset))
-          dataset <- select(dataset, -remove_index)
-          erased_genes <- c(erased_genes, family_members) %>% unlist
-        } else if (ncol(family_df)>1 & datatype=='norm'){
-          new_column <- rowMeans(family_df, na.rm = T)
-          remove_index <- match(family_members, colnames(dataset))
-          dataset <- select(dataset, -remove_index)
-          erased_genes <- c(erased_genes, family_members) %>% unlist
-        }
-        dataset <- mutate(dataset, merge=new_column)
-        colnames(dataset)[ncol(dataset)] <- node
-        
+  geneindex_var %<>% mutate(V1=as.character(V1), V2=as.character(V2))
+  inv_dataset <- data.frame(row.names = rownames(dataset))
+  patients <- rownames(dataset)
+  nodes_list <- geneindex_var$V1 %>% unique %>% as.character
+  
+  for (node in nodes_list){
+    mapped_genes <- geneindex_var$V2[geneindex_var$V1 == node]
+    if (any(mapped_genes != "") & any(mapped_genes %in% colnames(dataset))){
+      if (length(mapped_genes) == 1){
+        new_column <- select(dataset, one_of(mapped_genes))
+      } else if (datatype == 'norm'){
+        new_column <-  data.frame(rowMeans(select(dataset, one_of(mapped_genes)), na.rm = T))
+      } else if (datatype == 'bin'){
+        interm <- rowMeans(select(dataset, one_of(mapped_genes)), na.rm = T)
+        interm[interm!=0 & interm !=1] <- NA
+        interm[is.nan(interm)] <- NA
+        new_column <- data.frame(interm)
       }
+      inv_dataset[patients,node] <- new_column[patients,]
     }
-    
   }
-  rownames(dataset) <- patients
-  return(dataset)
+  return(inv_dataset)
 }
 
 if (!dir.exists("Results/Profiles")){
@@ -947,33 +926,86 @@ if (!dir.exists("Results/Profiles")){
 }
 
 #TCGAmodel_mut_prof_red <- TCGAmodel_mut_prof[,colSums(!is.na(TCGAmodel_mut_prof)) > 0]
-write.csv(inverse_mapping(TCGAmodel_mut_prof),"Results/Profiles/Fumia_TCGA_mutations.csv")
+write.csv(inverse_mapping(TCGAmodel_mut_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutations.csv")
 
-write.csv(inverse_mapping(TCGAmodel_CNA_prof),"Results/Profiles/Fumia_TCGA_CNA.csv")
+write.csv(inverse_mapping(TCGAmodel_CNA_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_CNA.csv")
 
-write.csv(inverse_mapping(TCGAmodel_mutCNA_prof),"Results/Profiles/Fumia_TCGA_mutCNA.csv")
-write.csv(inverse_mapping(TCGAmodel_mutCNAneg_prof),"Results/Profiles/Fumia_TCGA_mutCNAneg.csv")
+write.csv(inverse_mapping(TCGAmodel_mutCNA_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutCNA.csv")
 
-write.csv(inverse_mapping(TCGAmodel_RNA_prof),"Results/Profiles/Fumia_TCGA_RNA.csv")
-write.csv(inverse_mapping(TCGAmodel_RNAref_prof),"Results/Profiles/Fumia_TCGA_RNAref.csv")
-write.csv(inverse_mapping(TCGAmodel_RNA_prof_norm, datatype='norm'),"Results/Profiles/Fumia_TCGA_RNA_norm.csv")
-write.csv(inverse_mapping(TCGAmodel_RNAref_prof_norm, datatype='norm'),"Results/Profiles/Fumia_TCGA_RNAref_norm.csv")
+write.csv(inverse_mapping(TCGAmodel_mutCNAneg_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutCNAneg.csv")
 
-write.csv(inverse_mapping(TCGAmodel_prot_prof),"Results/Profiles/Fumia_TCGA_prot.csv")
-write.csv(inverse_mapping(TCGAmodel_prot_prof_norm, datatype='norm'),"Results/Profiles/Fumia_TCGA_prot_norm.csv")
+write.csv(inverse_mapping(TCGAmodel_RNA_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_RNA.csv")
 
-write.csv(inverse_mapping(TCGAmodel_exp_prof),"Results/Profiles/Fumia_TCGA_exp.csv")
-write.csv(inverse_mapping(TCGAmodel_expref_prof),"Results/Profiles/Fumia_TCGA_expref.csv")
-write.csv(inverse_mapping(TCGAmodel_exp_prof_norm, datatype='norm'),"Results/Profiles/Fumia_TCGA_exp_norm.csv")
-write.csv(inverse_mapping(TCGAmodel_expref_prof_norm, datatype='norm'),"Results/Profiles/Fumia_TCGA_expref_norm.csv")
+write.csv(inverse_mapping(TCGAmodel_RNAref_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_RNAref.csv")
 
-write.csv(inverse_mapping(TCGAmodel_mutexp_prof),"Results/Profiles/Fumia_TCGA_mutexp.csv")
-write.csv(inverse_mapping(TCGAmodel_mutexpref_prof),"Results/Profiles/Fumia_TCGA_mutexpref.csv")
-write.csv(inverse_mapping(TCGAmodel_mutRNA_prof),"Results/Profiles/Fumia_TCGA_mutRNA.csv")
-write.csv(inverse_mapping(TCGAmodel_mutRNAref_prof),"Results/Profiles/Fumia_TCGA_mutRNAref.csv")
-write.csv(inverse_mapping(TCGAmodel_mutprot_prof),"Results/Profiles/Fumia_TCGA_mutprot.csv")
+write.csv(inverse_mapping(TCGAmodel_RNA_prof_norm,
+                          datatype='norm',
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_RNA_norm.csv")
 
+write.csv(inverse_mapping(TCGAmodel_RNAref_prof_norm,
+                          datatype='norm',
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_RNAref_norm.csv")
 
+write.csv(inverse_mapping(TCGAmodel_prot_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_prot.csv")
+
+write.csv(inverse_mapping(TCGAmodel_prot_prof_norm,
+                          datatype='norm',
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_prot_norm.csv")
+
+write.csv(inverse_mapping(TCGAmodel_exp_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_exp.csv")
+
+write.csv(inverse_mapping(TCGAmodel_expref_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_expref.csv")
+
+write.csv(inverse_mapping(TCGAmodel_exp_prof_norm,
+                          datatype='norm',
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_exp_norm.csv")
+
+write.csv(inverse_mapping(TCGAmodel_expref_prof_norm,
+                          datatype='norm',
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_expref_norm.csv")
+
+write.csv(inverse_mapping(TCGAmodel_mutexp_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutexp.csv")
+
+write.csv(inverse_mapping(TCGAmodel_mutexpref_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutexpref.csv")
+
+write.csv(inverse_mapping(TCGAmodel_mutRNA_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutRNA.csv")
+
+write.csv(inverse_mapping(TCGAmodel_mutRNAref_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutRNAref.csv")
+
+write.csv(inverse_mapping(TCGAmodel_mutprot_prof,
+                          geneindex_var = geneindex),
+          "Results/Profiles/Fumia_TCGA_mutprot.csv")
 
 
 ```
