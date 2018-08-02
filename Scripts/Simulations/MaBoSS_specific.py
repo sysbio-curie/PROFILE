@@ -108,9 +108,9 @@ for i in range(len(lines)):
     if re.search("^Node .*{$", lines[i]):
         node_name = re.split(" *{",lines[i])[0].split(" ")[1]        
         nodes.append(node_name)
-        if re.search("  logic = [01];", lines[i+1]):
+        if re.search("logic *= *\(?[01]\)?;", lines[i+1]):
             constant_nodes[node_name] = int(lines[i+1][-3])
-        if re.search("logic = [(]?"+re.escape(node_name)+"[)]?;",lines[i+1]):
+        if re.search("logic *= *\(?"+re.escape(node_name)+"\)?;",lines[i+1]):
              input_nodes[node_name] = 0.5 #Unless otherwise specified, we define a 0.5 default value for input 
 
 #Define save_file
@@ -163,9 +163,9 @@ else:
     outputs = ["Proliferation","Apoptosis"]
 
 if os.path.isfile(path_model + ".reggraph"):
-    print("Inputs: "+str(input_nodes)+" - Constant nodes: "+str(constant_nodes)+" - Outputs: "+str(outputs)+" - Model outputs: "+str(model_outputs))
+    print("Inputs (model-based and user-defined): "+str(input_nodes)+" - Constant nodes (model-based): "+str(constant_nodes)+" - Simulation outputs (user-defined): "+str(outputs)+" - Model outputs (model-based): "+str(model_outputs))
 else:
-    print("Inputs: "+str(input_nodes)+" - Constant nodes: "+str(constant_nodes)+" - Outputs: "+str(outputs))
+    print("Inputs (model-based and user-defined): "+str(input_nodes)+" - Constant nodes (model-based): "+str(constant_nodes)+" - Simulation outputs (user-defined): "+str(outputs))
     
 #Define patient lists
 cases_common = list()
@@ -266,7 +266,6 @@ def perform_MaBoSS_simulation(n_profile, fname, profile_name):
     os.chdir(os.path.dirname(path_model))
     os.system("perl "+base_path+"Scripts/Simulations/MBSS_FormatTable.pl " + string_opt)
     os.chdir(current_wd)
-    #subprocess.Popen([base_path+"Scripts/Simulations/MBSS_FormatTable.pl " + string_opt, cwd=os.path.dirname(path_model))
     
     # store column names (states) and last line with final state distribution in a temp file
     os.system("head -n 1 "+path_fname+"/"+fname+"_probtraj_table.csv > "+path_fname+"/"+fname+"_lastprob_table.csv")
