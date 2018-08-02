@@ -315,9 +315,8 @@ else:
             rates_list_red={ k:v for k, v in rates_list.items() if not numpy.isnan(v) }
             for node, value in rates_list_red.items():
                 if not numpy.isnan(value):
-                    up_value = round(10**(2*numpy.log10(rates_f)*(value-0.5)),5)
                     up_value = round(rates_f**(2*value-1),5)
-                    down_value = 1/up_value
+                    down_value = round(1/up_value,5)
                     original_up = float(os.popen("grep -E '^\$u_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
                     original_down = float(os.popen("grep -E '^\$d_"+node+" *= *' "+path_fname+".cfg | cut -d'=' -f2 | cut -d';' -f1| tr -d '\n'").read())
                     os.system(sed_string+"'s/u_"+node+" *= *[0-9]*\.*[0-9]*;/u_"+node+"="+str(up_value*original_up)+";/g' "+path_fname+"'.cfg'")
