@@ -56,7 +56,6 @@ parser.add_argument("-rf","--rates_factor", help="multiplication factor for rate
 args = parser.parse_args()
 
 #%% Process Arguments
-sys.exit(1)
 print("Arguments:\n")
 print(args)
 print("\n")
