@@ -7,6 +7,8 @@ jonas.beal@curie.fr
 """
 #%% Imports
 
+#This is an adapeted version designed to prevent some nodes from being modified in their initial conditions (but only by mutants)
+
 # Imports and tests
 import sys
 import os
@@ -38,6 +40,9 @@ parser.add_argument("-i","--inputs", help="initial probabilities of inputs, alte
 parser.add_argument("-o","--outputs", help="outputs are marked as external nodes, whose final probabilities are saved in the result file (ex: 'Proliferation,Apoptosis')")
 parser.add_argument("-s","--suffix", help="suffix is added to all intermediate and result files (ex: 'my_simulation')")
 
+#Create a list of protected nodes, modified only based on mutations (-m) information. Therefore, initial states and rates are protected and taken from the initial .cfg file
+parser.add_argument("-pn","--protected_nodes", help="list of protected nodes, modified only based on mutations (-m) information; therefore, initial states and rates are protected and taken from the initial .cfg file (ex: 'SHH,E2F4')")
+
 #Bypass general arguments providing directly a proper CFG file with all information about inputs, outputs, define internal nodes and initial states
 parser.add_argument("-cfg","--CFGbypass", type=bool, help="True if you want to ignore inputs and outputs from general arguments and extract inputs, outputs, internal nodes and initial states' information directly from the provided CFG file (ex: '-cfg True' or '-cfg 1').")
 
@@ -51,7 +56,7 @@ parser.add_argument("-rf","--rates_factor", help="multiplication factor for rate
 args = parser.parse_args()
 
 #%% Process Arguments
-
+sys.exit(1)
 print("Arguments:\n")
 print(args)
 print("\n")
@@ -99,6 +104,10 @@ if args.CFGbypass is not None:
 else:
     CFGbypass=False
 
+#Define the protected nodes    
+if args.protected_nodes is not None:
+    protected_nodes = args.protected_nodes.split(",")
+
 #Define all nodes, constant nodes and input nodes based on .bnd file
 lines = open(path_model+".bnd").readlines()
 constant_nodes = dict()
@@ -110,7 +119,7 @@ for i in range(len(lines)):
         nodes.append(node_name)
         if re.search("logic *= *\(?[01]\)?;", lines[i+1]):
             constant_nodes[node_name] = int(lines[i+1][-3])
-        if re.search("logic *= *\(?"+re.escape(node_name)+"\)?;",lines[i+1]):
+        if re.search("logic *= *\(?"+re.escape(node_name)+"\)?;",lines[i+1]) and (node_name not in protected_nodes):
              input_nodes[node_name] = 0.5 #Unless otherwise specified, we define a 0.5 default value for input 
 
 #Define save_file
@@ -163,9 +172,9 @@ else:
     outputs = ["Proliferation","Apoptosis"]
 
 if os.path.isfile(path_model + ".reggraph"):
-    print("Inputs (model-based and user-defined): "+str(input_nodes)+" - Constant nodes (model-based): "+str(constant_nodes)+" - Simulation outputs (user-defined): "+str(outputs)+" - Model outputs (model-based): "+str(model_outputs))
+    print("- Inputs (model-based and user-defined): "+str(input_nodes)+"\n - Constant nodes (model-based): "+str(constant_nodes)+"\n - Simulation outputs (user-defined): "+str(outputs)+"\n - Model outputs (model-based): "+str(model_outputs))
 else:
-    print("Inputs (model-based and user-defined): "+str(input_nodes)+" - Constant nodes (model-based): "+str(constant_nodes)+" - Simulation outputs (user-defined): "+str(outputs))
+    print("- Inputs (model-based and user-defined): "+str(input_nodes)+"\n - Constant nodes (model-based): "+str(constant_nodes)+"\n - Simulation outputs (user-defined): "+str(outputs))
     
 #Define patient lists
 cases_common = list()
@@ -175,7 +184,6 @@ if args.mutants is not None:
     mutants = pd.read_csv(args.mutants)
     mutants.rename(columns={'Unnamed: 0':'Name'}, inplace=True)
     mutants_dict = mutants.set_index('Name').to_dict(orient="index")
-    #mutants_dict = {k: v for k, v in mutants_dict.items() if not math.isnan(v)}
     cases_mut = list(mutants_dict.keys())
     cases_common.append(cases_mut)
 
@@ -184,6 +192,8 @@ if args.rates_basic is not None:
     rates_f = float(args.rates_factor)
     rates = pd.read_csv(args.rates_basic)
     rates.rename(columns={'Unnamed: 0':'Name'}, inplace=True)
+    if args.protected_nodes is not None:
+        rates.drop(list(set(protected_nodes) & set(list(rates))), axis=1, inplace=True)
     rates_dict = rates.set_index('Name').to_dict(orient="index")
     cases_rates = list(rates_dict.keys())
     cases_common.append(cases_rates)
@@ -194,6 +204,8 @@ if args.rates_advanced is not None:
     #Import data to define rates
     rates_a = pd.read_csv(args.rates_advanced)
     rates_a.rename(columns={'Unnamed: 0':'Name'}, inplace=True)
+    if args.protected_nodes is not None:
+        rates_a.drop(list(set(protected_nodes) & set(list(rates_a))), axis=1, inplace=True)
     rates_a_dict = rates_a.set_index('Name').to_dict(orient="index")
     cases_rates_a = list(rates_a_dict.keys())
     cases_common.append(cases_rates_a)
@@ -217,6 +229,8 @@ if args.rates_advanced is not None:
 if args.init_cond is not None:
     init_cond = pd.read_csv(args.init_cond)
     init_cond.rename(columns={'Unnamed: 0':'Name'}, inplace=True)
+    if args.protected_nodes is not None:
+        init_cond.drop(list(set(protected_nodes) & set(list(init_cond))), axis=1, inplace=True)
     init_cond_dict = init_cond.set_index('Name').to_dict(orient="index")
     cases_exp = list(init_cond_dict.keys())
     cases_common.append(cases_exp)
