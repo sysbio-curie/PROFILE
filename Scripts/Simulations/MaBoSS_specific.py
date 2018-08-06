@@ -106,6 +106,7 @@ else:
 #Define the protected nodes    
 if args.protected_nodes is not None:
     protected_nodes = args.protected_nodes.split(",")
+else: protected_nodes=list()
 
 #Define all nodes, constant nodes and input nodes based on .bnd file
 lines = open(path_model+".bnd").readlines()
