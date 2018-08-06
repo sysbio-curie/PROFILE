@@ -606,21 +606,20 @@ mut_plus_CNA <- function(mut,cna){
   return(merged)
 }
 
-METAmodel_mutCNA_prof = METAmodel_mutCNAneg_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(METAmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(METAmodel_CNA_prof))) %>% as.data.frame
-METAmodel_CNAneg_prof <- METAmodel_CNA_prof
-METAmodel_CNAneg_prof[METAmodel_CNAneg_prof==1] <- NA
+common_patients <- intersect(rownames(METAmodel_mut_prof), rownames(METAmodel_CNA_prof))
+concerned_genes <- unique(c(colnames(METAmodel_mut_prof), colnames(METAmodel_CNA_prof)))
 
-for(i in 1:dim(METAmodel_mutCNA_prof)[2]){
-  gene <- colnames(METAmodel_mutCNA_prof)[i]
-  if (gene %in% colnames(METAmodel_mut_prof)){
-    METAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(METAmodel_mut_prof[common_patients_MCR,gene], METAmodel_CNA_prof[common_patients_MCR,gene])
-    METAmodel_mutCNAneg_prof[,gene] <- mut_plus_CNA(METAmodel_mut_prof[common_patients_MCR,gene], METAmodel_CNAneg_prof[common_patients_MCR,gene])
+METAmodel_mutCNA_prof <- matrix(nrow = length(common_patients), ncol = length(concerned_genes), dimnames = list(common_patients,concerned_genes)) %>% as.data.frame
+
+for(gene in concerned_genes){
+  if (gene %in% colnames(METAmodel_mut_prof) & gene %in% colnames(METAmodel_CNA_prof)){
+    METAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(METAmodel_mut_prof[common_patients,gene], METAmodel_CNA_prof[common_patients,gene])
+  } else if (gene %in% colnames(METAmodel_CNA_prof)) {
+    METAmodel_mutCNA_prof[,gene] <- METAmodel_CNA_prof[common_patients,gene]
   } else {
-    METAmodel_mutCNA_prof[,gene] <- METAmodel_CNA_prof[common_patients_MCR,gene]
-    METAmodel_mutCNAneg_prof[,gene] <- METAmodel_CNAneg_prof[common_patients_MCR,gene]
+    METAmodel_mutCNA_prof[,gene] <- METAmodel_mut_prof[common_patients,gene]
   }
 }
-
 
 ```
 
@@ -639,31 +638,6 @@ if (nrow(incons)==0){
 }
 
 ```
-
-In case of ambiguity, pritority is given to RNA over CNA
-
-```{r merge_CNA_RNA, echo=FALSE, message=FALSE, warning=FALSE}
-
-CNA_plus_RNA <- function(cna,rna){
-  merged <- rna
-  merged[is.na(merged)] <- cna[is.na(merged)]
-  return(merged)
-}
-
-METAmodel_mutCNA_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(METAmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(METAmodel_CNA_prof))) %>% as.data.frame
-
-for(i in 1:dim(METAmodel_mutCNA_prof)[2]){
-  gene <- colnames(METAmodel_mutCNA_prof)[i]
-  if (gene %in% colnames(METAmodel_mut_prof)){
-    METAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(METAmodel_mut_prof[common_patients_MCR,gene], METAmodel_CNA_prof[common_patients_MCR,gene])
-  } else {
-    METAmodel_mutCNA_prof[,gene] <- METAmodel_CNA_prof[common_patients_MCR,gene]
-  }
-}
-
-
-```
-
 
 ### Mut and RNA
 
@@ -757,10 +731,6 @@ write.csv(inverse_mapping(METAmodel_CNA_prof,
 write.csv(inverse_mapping(METAmodel_mutCNA_prof, 
                           geneindex_var = geneindex),
           "Results/Profiles/Fumia_META_mutCNA.csv")
-
-write.csv(inverse_mapping(METAmodel_mutCNAneg_prof, 
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_META_mutCNAneg.csv")
 
 write.csv(inverse_mapping(METAmodel_RNA_prof, 
                           geneindex_var = geneindex),
