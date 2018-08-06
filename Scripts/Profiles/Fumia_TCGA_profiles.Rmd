@@ -747,18 +747,23 @@ mut_plus_CNA <- function(mut,cna){
   return(merged)
 }
 
-TCGAmodel_mutCNA_prof = TCGAmodel_mutCNAneg_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(TCGAmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(TCGAmodel_CNA_prof))) %>% as.data.frame
+common_patients <- intersect(rownames(TCGAmodel_mut_prof), rownames(TCGAmodel_CNA_prof))
+concerned_genes <- unique(c(colnames(TCGAmodel_mut_prof), colnames(TCGAmodel_CNA_prof)))
+
+TCGAmodel_mutCNA_prof = TCGAmodel_mutCNAneg_prof <- matrix(nrow = length(common_patients), ncol = length(concerned_genes), dimnames = list(common_patients,concerned_genes)) %>% as.data.frame
 TCGAmodel_CNAneg_prof <- TCGAmodel_CNA_prof
 TCGAmodel_CNAneg_prof[TCGAmodel_CNAneg_prof==1] <- NA
 
-for(i in 1:dim(TCGAmodel_mutCNA_prof)[2]){
-  gene <- colnames(TCGAmodel_mutCNA_prof)[i]
-  if (gene %in% colnames(TCGAmodel_mut_prof)){
-    TCGAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(TCGAmodel_mut_prof[common_patients_MCR,gene], TCGAmodel_CNA_prof[common_patients_MCR,gene])
-    TCGAmodel_mutCNAneg_prof[,gene] <- mut_plus_CNA(TCGAmodel_mut_prof[common_patients_MCR,gene], TCGAmodel_CNAneg_prof[common_patients_MCR,gene])
+for(gene in concerned_genes){
+  if (gene %in% colnames(TCGAmodel_mut_prof) & gene %in% colnames(TCGAmodel_CNA_prof)){
+    TCGAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(TCGAmodel_mut_prof[common_patients,gene], TCGAmodel_CNA_prof[common_patients,gene])
+    TCGAmodel_mutCNAneg_prof[,gene] <- mut_plus_CNA(TCGAmodel_mut_prof[common_patients,gene], TCGAmodel_CNAneg_prof[common_patients,gene])
+  } else if (gene %in% colnames(TCGAmodel_CNA_prof)) {
+    TCGAmodel_mutCNA_prof[,gene] <- TCGAmodel_CNA_prof[common_patients,gene]
+    TCGAmodel_mutCNAneg_prof[,gene] <- TCGAmodel_CNAneg_prof[common_patients,gene]
   } else {
-    TCGAmodel_mutCNA_prof[,gene] <- TCGAmodel_CNA_prof[common_patients_MCR,gene]
-    TCGAmodel_mutCNAneg_prof[,gene] <- TCGAmodel_CNAneg_prof[common_patients_MCR,gene]
+    TCGAmodel_mutCNA_prof[,gene] <- TCGAmodel_mut_prof[common_patients,gene]
+    TCGAmodel_mutCNAneg_prof[,gene] <- TCGAmodel_mut_prof[common_patients,gene]
   }
 }
 
@@ -778,30 +783,6 @@ if (nrow(incons)==0){
 }else{
   kable(incons)
 }
-
-```
-
-In case of ambiguity, pritority is given to RNA over CNA
-
-```{r merge_CNA_RNA, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
-
-CNA_plus_RNA <- function(cna,rna){
-  merged <- rna
-  merged[is.na(merged)] <- cna[is.na(merged)]
-  return(merged)
-}
-
-TCGAmodel_mutCNA_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(TCGAmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(TCGAmodel_CNA_prof))) %>% as.data.frame
-
-for(i in 1:dim(TCGAmodel_mutCNA_prof)[2]){
-  gene <- colnames(TCGAmodel_mutCNA_prof)[i]
-  if (gene %in% colnames(TCGAmodel_mut_prof)){
-    TCGAmodel_mutCNA_prof[,gene] <- mut_plus_CNA(TCGAmodel_mut_prof[common_patients_MCR,gene], TCGAmodel_CNA_prof[common_patients_MCR,gene])
-  } else {
-    TCGAmodel_mutCNA_prof[,gene] <- TCGAmodel_CNA_prof[common_patients_MCR,gene]
-  }
-}
-
 
 ```
 
