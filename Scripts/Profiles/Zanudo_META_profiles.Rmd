@@ -299,7 +299,7 @@ OSclass <- function(exp_dataset, ref_dataset=exp_dataset) {
 
 #function to to binarize bimodal distributions based on a 2-modes gaussian mixture model (with equal variances). Can be called with a reference dataset
 BIMclass <- function(exp_dataset, ref_dataset=exp_dataset) {
-  mc <- Mclust(ref_dataset, modelNames = "E", G=2, verbose = FALSE)
+  mc <- Mclust(na.omit(ref_dataset), modelNames = "E", G=2, verbose = FALSE)
   classif <- rep(NA,length(exp_dataset))
   if (diff(mc$parameters$mean)>0){
     thresh_down <- max(mc$data[mc$classification==1 & mc$uncertainty <= 0.05])
@@ -317,7 +317,7 @@ BIMclass <- function(exp_dataset, ref_dataset=exp_dataset) {
 
 #function for normalization of zero-inflated data
 norm_fun_lin <- function(xdat, reference = xdat){
-  x_proc <- (xdat-quantile(reference, 0.01))/quantile(xdat-quantile(reference, 0.01), 0.99)
+  x_proc <- (xdat-quantile(reference, 0.01, na.rm = T))/quantile(xdat-quantile(reference, 0.01, na.rm = T), 0.99, na.rm = T)
   x_proc[x_proc<0] <- 0
   x_proc[x_proc>1] <- 1
   x_proc
@@ -336,12 +336,15 @@ norm_fun_sig <- function(xdat, reference = xdat){
 
 #function for normalization of unimodal data
 norm_fun_bim <- function(xdat, reference = xdat) {
-  mc <- Mclust(reference, modelNames = "E", G=2, verbose = FALSE)
-  pred <- predict.Mclust(mc,xdat)
+  not_na_xdat <- !is.na(xdat)
+  not_na_ref <- !is.na(reference)
+  mc <- Mclust(reference[not_na_ref], modelNames = "E", G=2, verbose = FALSE)
+  pred <- predict.Mclust(mc,xdat[not_na_xdat])
+  normalization <- rep(NA,length(xdat))
   if (diff(mc$parameters$mean)>0){
-    normalization <- pred$z[,2]
+    normalization[not_na_xdat] <- pred$z[,2]
   } else if (diff(mc$parameters$mean)<0){
-    normalization <- pred$z[,1]
+    normalization[not_na_xdat] <- pred$z[,1]
   }
   normalization
 }
