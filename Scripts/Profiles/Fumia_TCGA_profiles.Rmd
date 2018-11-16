@@ -23,7 +23,7 @@ Generate patients profiles from BRCA TCGA data for further logical modelling.
 ```{r packages_and_utilities, echo=FALSE, message=FALSE}
 
 if (!require("pacman")) install.packages("pacman")
-list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr")
+list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr","gplots")
 pacman::p_load(list.of.packages, character.only = TRUE)
 
 tbl_to_df <- function(x){
@@ -72,51 +72,36 @@ TCGA_RNA <- read_delim("Data/TCGA/data_RNA_Seq_v2_expression_median.txt", delim=
   entrez_to_hugo %>% tibble_transpose  %>% map_if(is.numeric, function(x) log2(x+1)) %>% as.tibble
 TCGA_RNAref <- read_delim("Data/TCGA/data_RNA_Seq_v2_expression_median_normals.txt", delim="\t") %>%
   entrez_to_hugo %>% tibble_transpose  %>% map_if(is.numeric, function(x) log2(x+1)) %>% as.tibble
-TCGA_prot <- read_delim("Data/TCGA/data_rppa.txt", delim="\t") %>% select(-matches("^X[0-9]+$")) %>% tibble_transpose %>% mutate(PATIENT_ID=substr(PATIENT_ID,1,15))
+
+#Prot
+TCGA_RPPA <- read_delim("Data/TCGA/data_rppa.txt", delim="\t") %>% select(-matches("^X[0-9]+$")) %>% tibble_transpose %>% mutate(PATIENT_ID=substr(PATIENT_ID,1,15))
+
+colnames(TCGA_RPPA)[2:ncol(TCGA_RPPA)] <-
+  colnames(select(TCGA_RPPA,-PATIENT_ID)) %>% strsplit(split="|", fixed=T) %>% lapply(`[`,2) %>% unlist
+
+TCGA_RPPA_corres <- readxl::read_xlsx("Data/TCGA/RPPA_corres_TCGA.xlsx") %>%
+  mutate(Ab=gsub('-[A-Z]-[A-Z]$','',Ab)) %>%
+  filter(Ab %in% colnames(TCGA_RPPA))
+
+no_phospho_list <- filter(TCGA_RPPA_corres, Phospho==0) %>% select(Ab) %>% unlist %>% unname
+genes_prot <- filter(TCGA_RPPA_corres, Phospho==0) %>% select(Genes) %>% unlist %>% unname %>%
+  strsplit(', ') %>% unlist %>% unique
+
+phospho_list <- filter(TCGA_RPPA_corres, Phospho!=0) %>% select(Ab) %>% unlist %>% unname
+genes_phospho <- filter(TCGA_RPPA_corres, Phospho!=0) %>% select(Genes) %>% unlist %>% unname %>%
+  strsplit(', ') %>% unlist %>% unique
+
+TCGA_prot <- select(TCGA_RPPA, PATIENT_ID, one_of(no_phospho_list))
+TCGA_phospho <- select(TCGA_RPPA, PATIENT_ID, one_of(phospho_list))
 
 #Additional imports: PAM50 gene list
 PAM50 <- read_delim("Data/Common/pam50_centroids.txt", delim = "\t") %>% rename(Gene=X1) %>% select(Gene)
 
 #Genes involved in Fumia model
-genenames <- read.table("Models/Fumia2013/Fumia_namesToHugo_curated.txt",header=T,sep="\t")
+genenames <- read.table("Models/Fumia/Fumia_namesToHugo_curated.txt",header=T,sep="\t")
 geneindex <- strsplit(as.character(genenames[,2]), split = ",") %>% sapply(function(l){gsub(" ","",l)})
 geneindex <- data.frame(V1 = rep(genenames[,1], sapply(geneindex, length)), V2 = unlist(geneindex))
 model_nodes_HUGO <- unique(geneindex[,2]) %>% sub("^\\s+", "", .)
-
-#Due to specific nomenclature, an additional step is needed to infer corresponding HUGO names
-prot_correspondance <- TCGA_prot %>% select(-PATIENT_ID) %>% colnames %>% strsplit(split="|", fixed=T) %>% lapply(`[[`,1) %>% unlist %>% strsplit(split=" ", fixed=T)
-prot_list <- prot_correspondance %>% unlist %>% unique
-model_nodes_HUGO_prot <- rep(1:length(prot_correspondance), lengths(prot_correspondance))[unlist(prot_correspondance) %in% model_nodes_HUGO] %>% unique %>% colnames(TCGA_prot %>% select(-PATIENT_ID))[.]
-
-#Divide and merge prot data
-TCGA_prot_processed <- TCGA_prot
-for (i in which(lengths(prot_correspondance)>1)){
-  measure_name <- colnames(TCGA_prot_processed)[1+i]
-  measure <- TCGA_prot_processed[1+i] %>% unlist %>% unname
-  antibody <- strsplit(measure_name,"|", fixed=T) %>% unlist %>% tail(n=1)
-  genes <- strsplit(measure_name,"|", fixed=T) %>% unlist %>% head(n=1) %>% strsplit(" ") %>% unlist
-  for (j in 2:length(genes)){
-    TCGA_prot_processed <- mutate(TCGA_prot_processed, UQ(paste0(genes[j],"|",antibody)) := !!measure)
-  }
-  TCGA_prot_processed <- rename(TCGA_prot_processed, UQ(paste0(genes[1],"|",antibody)) := UQ(measure_name))
-}
-
-all_prot <- TCGA_prot_processed %>% select(-PATIENT_ID) %>% colnames %>% strsplit(split="|", fixed=T) %>% lapply(`[[`,1) %>% unlist %>% strsplit(split=" ", fixed=T) %>% unlist
-
-for (gene in unique(all_prot)){
-  index <- grep(paste0("^",gene,"[ ]*\\|"),colnames(TCGA_prot_processed))
-  measure_name <- colnames(TCGA_prot_processed)[index]
-  if (length(index)>1){
-    measure <- rowMeans(TCGA_prot_processed[,index], na.rm = T)
-    TCGA_prot_processed <- mutate(TCGA_prot_processed, !!gene := !!measure) %>% select(-one_of(measure_name))
-  } else if (length(index)==1) {
-    TCGA_prot_processed <- rename(TCGA_prot_processed, !!gene := !!measure_name)
-  } else {
-    stop("Mapping error")
-  }
-}
-
-TCGA_prot <- TCGA_prot_processed
 
 #Create new variables with only genes related to the model
 TCGAmodel_mut <- TCGA_mut %>% filter(Hugo_Symbol %in% model_nodes_HUGO)
@@ -129,14 +114,12 @@ TCGAmodel_prot <- TCGA_prot %>% select(PATIENT_ID, one_of(model_nodes_HUGO))
 Most patients have all omics data:
 
 ```{r VennTCGA, echo=FALSE, eval=TRUE}
-flog.threshold(ERROR)
 
 TCGA_clin_patients <- paste0(TCGA_clin$PATIENT_ID,"-01")
 
-grid.draw(venn.diagram(list(CNA=TCGA_CNA$PATIENT_ID, RNA=TCGA_RNA$PATIENT_ID, Prot=TCGA_prot$PATIENT_ID, Clinical_Mut=TCGA_clin_patients), filename=NULL, col = "transparent", fill = c("cornflowerblue", "green", "yellow", "darkorchid1"), alpha = 0.5, label.col = c("orange", "white", "darkorchid4", "white", "white", "white", "white", "white", "darkblue", "white", "white", "white", "white", "darkgreen", "white"), cex = 1.5, fontface = "bold", cat.default.pos = "text", cat.col = c("darkblue", "darkgreen", "orange", "darkorchid4"), cat.cex = 1.5, cat.pos = 0, main = "TCGA - Patients and available data types and clinical information"))
+gplots::venn(list(CNA=TCGA_CNA$PATIENT_ID, RNA=TCGA_RNA$PATIENT_ID, Mut=unique(TCGA_mut$PATIENT_ID), Prot= TCGA_prot$PATIENT_ID, Phospho=TCGA_phospho$PATIENT_ID))
 
-grid.newpage()
-grid.draw(venn.diagram(list(Model=model_nodes_HUGO, Mutants = unique(TCGA_mut$Hugo_Symbol), CNA=TCGA_CNA %>% select(-PATIENT_ID) %>% colnames, RNA=TCGA_RNA %>% select(-PATIENT_ID) %>% colnames, Prot = TCGA_prot %>% select(-PATIENT_ID) %>% colnames), filename=NULL, main = "Model genes and available data types", col = "transparent", fill = c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3"), alpha = 0.5, cex = 1, fontface = "bold", cat.default.pos = "text", cat.col = c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3", "orchid3"), cat.cex = 1.5, cat.pos = c(0,0,0,0,0),cat.dist = c(0.2,0.2,-0.2,-0.2,0.2)))
+gplots::venn(list(Model=model_nodes_HUGO, Mutants = unique(TCGA_mut$Hugo_Symbol), RNA=TCGA_RNA %>% select(-PATIENT_ID) %>% colnames, Prot=genes_prot, Phospho = genes_phospho))
 
 ```
 
@@ -408,7 +391,6 @@ compute_criteria <- function(exp_dataset){
   #Compute
   pb = txtProgressBar(min = 1, max = ncol(exp_dataset), initial = 1) 
   for (i in 1:ncol(exp_dataset)){
-#  for (i in 1:10){
     x <- na.omit(unlist(exp_dataset[,i]))
     criteria$Amplitude[i] <- max(x)-min(x)
     
@@ -553,7 +535,7 @@ TCGAmodel_RNAref_prof <- TCGA_RNAref_prof %>% select(one_of(model_nodes_HUGO))
 ```
 
 
-```{r prot_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+```{r prot_profiles, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
 #same criteria computation with proteomics data
 compute_criteria_prot <- function(exp_dataset){
   exp_dataset <- exp_dataset %>% select(-PATIENT_ID)
@@ -639,7 +621,11 @@ normalize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.pl
     exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
     exp_dataset[,logi_uni] <- mapply(function(x,y) norm_fun_sig(x,y), exp_dataset[,logi_uni], ref_dataset[,logi_uni])
     exp_dataset[,logi_zero] <- mapply(function(x,y) norm_fun_lin(x,y), exp_dataset[,logi_zero], ref_dataset[,logi_zero])
-    exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    if (sum(logi_bim)>1){
+      exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    } else {
+      exp_dataset[,logi_bim] <- norm_fun_bim(exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    }
     
     return(exp_dataset)
   }
@@ -648,28 +634,74 @@ normalize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.pl
 
 TCGA_RNA_prof_norm <- normalize_exp(TCGA_RNA, TCGA_RNA, criteria_TCGA)
 TCGA_RNAref_prof_norm <- normalize_exp(TCGA_RNA, TCGA_RNAref, criteria_TCGAref)
-TCGA_prot_prof_norm <- normalize_exp(TCGA_prot, TCGA_prot, criteria_TCGA_prot)
+#TCGA_prot_prof_norm <- normalize_exp(TCGA_prot, TCGA_prot, criteria_TCGA_prot)
 
 TCGAmodel_RNA_prof_norm <- TCGA_RNA_prof_norm %>% select(one_of(model_nodes_HUGO))
 TCGAmodel_RNAref_prof_norm <- TCGA_RNAref_prof_norm %>% select(one_of(model_nodes_HUGO))
+#TCGAmodel_prot_prof_norm <- TCGA_prot_prof_norm %>% select(one_of(model_nodes_HUGO))
+
+```
+
+## RPPA
+
+Do the same with RPPA data
+
+```{r RPPA_profiles_original_criteria, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+criteria_TCGA_RPPA <- compute_criteria(TCGA_RPPA) %>% rename(Ab=Gene) %>%
+  full_join(select(TCGA_RPPA_corres,Ab,Genes,Phospho), by='Ab')
+
+print("TCGA assignments:")
+kable(t(table(criteria_TCGA_RPPA$Category)))
+
+criteria_TCGA_prot <- criteria_TCGA_RPPA %>% filter(Phospho==0)
+criteria_TCGA_phospho <- criteria_TCGA_RPPA %>% filter(Phospho!=0)
+
+prot_corres <- data.frame(Ab = rep(criteria_TCGA_prot$Ab, lengths(strsplit(criteria_TCGA_prot$Genes,',[ ]*'))),
+                          Genes = unlist(strsplit(criteria_TCGA_prot$Genes,',[ ]*'))) %>% mutate_all(as.character)
+phospho_corres <- data.frame(Ab = rep(criteria_TCGA_phospho$Ab, lengths(strsplit(criteria_TCGA_phospho$Genes,',[ ]*'))),
+                          Genes = unlist(strsplit(criteria_TCGA_phospho$Genes,',[ ]*'))) %>% mutate_all(as.character)
+
+#First normalize RPPA
+TCGA_RPPA_prof_norm <- normalize_exp(TCGA_RPPA, TCGA_RPPA, criteria_TCGA_RPPA) %>%
+  select_if(~sum(!is.na(.)) > 0) #%>%
+  #rownames_to_column(var='PATIENT_ID')
+
+#Then divide
+TCGA_prot_prof_norm <- select(TCGA_RPPA_prof_norm, one_of('PATIENT_ID',prot_corres$Ab))
+TCGA_phospho_prof_norm <- select(TCGA_RPPA_prof_norm, one_of('PATIENT_ID',phospho_corres$Ab))
+
+#Processing
+from_ab_to_genes <- function(df, corres_table){
+  new_df <- data.frame(row.names = rownames(df))
+  genes <- unique(corres_table$Genes)
+  for (g in genes){
+    antibodies <- filter(corres_table, Genes==g) %>% select(Ab) %>% unlist %>% unname
+    antibodies <- antibodies[antibodies %in% colnames(df)]
+    if (length(antibodies)>1){
+      new_df[,g] <- rowMeans(df[,antibodies], na.rm=T)
+    } else if (length(antibodies)==1) {
+      new_df[,g] <- df[,antibodies]
+    }
+  }
+  return(new_df)
+}
+
+#Prot processing
+TCGA_prot_prof_norm %<>% from_ab_to_genes(., prot_corres)
+
+#Phospho processing
+neg_activity <- filter(TCGA_RPPA_corres, Phospho==-1) %>% select(Ab) %>% unlist %>% unname
+TCGA_phospho_prof_norm[,neg_activity] <- 1-TCGA_phospho_prof_norm[,neg_activity]
+TCGA_phospho_prof_norm %<>% from_ab_to_genes(., phospho_corres)
+
+#Profiles
 TCGAmodel_prot_prof_norm <- TCGA_prot_prof_norm %>% select(one_of(model_nodes_HUGO))
+TCGAmodel_phospho_prof_norm <- TCGA_phospho_prof_norm %>% select(one_of(model_nodes_HUGO))
 
 ```
 
 # Merged profiles
-
-```{r merge_patients_genes, echo=FALSE, message=FALSE, warning=FALSE}
-
-common_patients_MCR <- Reduce(intersect, list(rownames(TCGAmodel_mut_prof),rownames(TCGAmodel_CNA_prof),rownames(TCGAmodel_RNA_prof)))
-
-common_patients_MCRP <- Reduce(intersect, list(rownames(TCGAmodel_mut_prof),rownames(TCGAmodel_CNA_prof),rownames(TCGAmodel_RNA_prof),rownames(TCGAmodel_prot_prof)))
-
-
-common_genes_MCR <- Reduce(intersect, list(colnames(TCGAmodel_CNA_prof),colnames(TCGAmodel_RNA_prof)))
-
-common_genes_MCRP <- Reduce(intersect, list(colnames(TCGAmodel_mut_prof),colnames(TCGAmodel_CNA_prof),colnames(TCGAmodel_RNA_prof),rownames(TCGAmodel_prot_prof)))
-
-```
 
 ## Data types relations
 
@@ -720,7 +752,6 @@ common_patients <- intersect(TCGA_RNA$PATIENT_ID,TCGA_prot$PATIENT_ID)
 ken_TCGA_RNA_prot <- mapply(function(x,y) cor(x,y,method = "kendall"), tbl_to_df(TCGA_RNA)[common_patients,common_genes], tbl_to_df(TCGA_prot)[common_patients,common_genes])
 ken_TCGA_RNA_prot %>% unlist %>% as.data.frame %>% ggplot(aes(x=.)) + geom_histogram(bins=30) + geom_vline(xintercept = median(ken_TCGA_RNA_prot, na.rm = T)) + ggtitle("RNA/prot correlation distribution for each gene across cohort (with median)")
 
-print("PDK1 is the anti-correlated gene")
 ```
 
 ### Mutations and CNA
@@ -785,89 +816,21 @@ if (nrow(incons)==0){
 
 ### RNA and Prot
 
-When available, prot is used. Otherwise, we use RNA
+When available, phospho is used, then prot. Otherwise, we use RNA
 
-```{r RNA_prot, echo=FALSE, message=FALSE, warning=FALSE}
-common_genes <- intersect(colnames(TCGAmodel_RNA_prof), colnames(TCGAmodel_prot_prof))
-common_patients <- intersect(rownames(TCGAmodel_RNA_prof), rownames(TCGAmodel_prot_prof))
+```{r exp, echo=FALSE, message=FALSE, warning=FALSE}
 
-incons <- which(TCGAmodel_RNA_prof[common_patients, common_genes]==0 & TCGAmodel_prot_prof[common_patients, common_genes]==1 | TCGAmodel_RNA_prof[common_patients, common_genes]==1 & TCGAmodel_prot_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  RNA=diag(as.matrix(TCGAmodel_RNA_prof[Patient,Gene])), Prot=diag(as.matrix(TCGAmodel_prot_prof[Patient,Gene]))) %>% select(Patient,Gene,RNA, Prot)
-
-if (nrow(incons)==0){
-  print("No RNA/Protein binary inconsistencies")
-}else{
-  kable(incons)
+hierachical_merge <- function(first, second){
+  output <- first
+  additional_genes <- base::setdiff(colnames(second), colnames(first))
+  output[,additional_genes] <- second[rownames(output), additional_genes]
+  return(output)
 }
 
-RNA_and_prot <- function(RNA,prot){
-  common_patients <- intersect(rownames(RNA), rownames(prot))
-  merged <- RNA[common_patients,]
-  common_genes <- intersect(colnames(RNA), colnames(prot))
-  merged[common_patients, common_genes] <- prot[common_patients,common_genes]
-  only_prot_genes <- colnames(prot)[!(colnames(prot) %in% common_genes)]
-  if (length(only_prot_genes)>0){
-    merged <- cbind.data.frame(merged, prot[common_patients,only_prot_genes])
-  }
-  return(merged)
-}
-
-TCGAmodel_exp_prof <- RNA_and_prot(TCGAmodel_RNA_prof, TCGAmodel_prot_prof)
-TCGAmodel_expref_prof <- RNA_and_prot(TCGAmodel_RNAref_prof, TCGAmodel_prot_prof)
-TCGAmodel_exp_prof_norm <- RNA_and_prot(TCGAmodel_RNA_prof_norm, TCGAmodel_prot_prof_norm)
-TCGAmodel_expref_prof_norm <- RNA_and_prot(TCGAmodel_RNAref_prof_norm, TCGAmodel_prot_prof_norm)
-
+#Prot plus phospho
+TCGAmodel_pp_prof_norm <- hierachical_merge(TCGAmodel_phospho_prof_norm, TCGAmodel_prot_prof_norm)
+TCGAmodel_allexp_prof_norm <- hierachical_merge(TCGAmodel_pp_prof_norm, TCGAmodel_RNA_prof_norm)
 ```
-
-### Mut and Exp
-
-```{r mut_exp, echo=FALSE, message=FALSE, warning=FALSE}
-common_genes <- intersect(colnames(TCGAmodel_mut_prof), colnames(TCGAmodel_exp_prof))
-common_patients <- intersect(rownames(TCGAmodel_mut_prof), rownames(TCGAmodel_exp_prof))
-
-incons <- which(TCGAmodel_mut_prof[common_patients, common_genes]==0 & TCGAmodel_exp_prof[common_patients, common_genes]==1 | TCGAmodel_mut_prof[common_patients, common_genes]==1 & TCGAmodel_exp_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  Mut=diag(as.matrix(TCGAmodel_mut_prof[Patient,Gene])), Exp=diag(as.matrix(TCGAmodel_exp_prof[Patient,Gene]))) %>% select(Patient,Gene,Mut,Exp)
-
-if (nrow(incons)==0){
-  print("No mutation/Expression binary inconsistencies")
-}else{
-  kable(incons)
-}
-
-# Define a set of genes for which there are values on each of the plotted datasets.
-plot_mapping(plot_data,'PIK3CA')
-
-mut_plus_exp <- function(mutations,expression){
-  all_genes <- union(colnames(mutations), colnames(expression))
-  common_patients <- intersect(rownames(mutations), rownames(expression))
-  merged_matrix <- matrix(nrow = length(common_patients), ncol = length(all_genes), dimnames = list(common_patients,all_genes)) %>% as.data.frame
-  
-  mut_plus_exp_vec <- function(mut,exp){
-    merged <- mut
-    #merged[merged==1 & exp==0] <- 0
-    merged[is.na(merged)] <- exp[is.na(merged)]
-    return(merged)
-  }
-  
-  for(gene in colnames(merged_matrix)){
-    if ((gene %in% colnames(mutations)) & (gene %in% colnames(expression))){
-      merged_matrix[,gene] <- mut_plus_exp_vec(mutations[common_patients,gene], expression[common_patients,gene])
-    } else if (gene %in% colnames(mutations)) {
-      merged_matrix[,gene] <- mutations[common_patients,gene]
-    } else {
-      merged_matrix[,gene] <- expression[common_patients,gene]
-    }
-  }
-  return(merged_matrix)
-}
-
-TCGAmodel_mutexp_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_exp_prof)
-TCGAmodel_mutexpref_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_expref_prof)
-TCGAmodel_mutRNA_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_RNA_prof)
-TCGAmodel_mutRNAref_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_RNAref_prof)
-TCGAmodel_mutprot_prof <- mut_plus_exp(TCGAmodel_mut_prof, TCGAmodel_prot_prof)
-
-```
-
-
 
 ## Write profiles
 
@@ -903,7 +866,6 @@ if (!dir.exists("Results/Profiles")){
   dir.create("Results/Profiles")
 }
 
-#TCGAmodel_mut_prof_red <- TCGAmodel_mut_prof[,colSums(!is.na(TCGAmodel_mut_prof)) > 0]
 write.csv(inverse_mapping(TCGAmodel_mut_prof,
                           geneindex_var = geneindex),
           "Results/Profiles/Fumia_TCGA_mutations.csv")
@@ -934,53 +896,25 @@ write.csv(inverse_mapping(TCGAmodel_RNAref_prof_norm,
                           geneindex_var = geneindex),
           "Results/Profiles/Fumia_TCGA_RNAref_norm.csv")
 
-write.csv(inverse_mapping(TCGAmodel_prot_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_prot.csv")
-
 write.csv(inverse_mapping(TCGAmodel_prot_prof_norm,
                           datatype='norm',
                           geneindex_var = geneindex),
           "Results/Profiles/Fumia_TCGA_prot_norm.csv")
 
-write.csv(inverse_mapping(TCGAmodel_exp_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_exp.csv")
-
-write.csv(inverse_mapping(TCGAmodel_expref_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_expref.csv")
-
-write.csv(inverse_mapping(TCGAmodel_exp_prof_norm,
+write.csv(inverse_mapping(TCGAmodel_pp_prof_norm,
                           datatype='norm',
                           geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_exp_norm.csv")
+          "Results/Profiles/Fumia_TCGA_pp_norm.csv")
 
-write.csv(inverse_mapping(TCGAmodel_expref_prof_norm,
+write.csv(inverse_mapping(TCGAmodel_phospho_prof_norm,
                           datatype='norm',
                           geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_expref_norm.csv")
+          "Results/Profiles/Fumia_TCGA_phospho_norm.csv")
 
-write.csv(inverse_mapping(TCGAmodel_mutexp_prof,
+write.csv(inverse_mapping(TCGAmodel_allexp_prof_norm,
+                          datatype='norm',
                           geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_mutexp.csv")
-
-write.csv(inverse_mapping(TCGAmodel_mutexpref_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_mutexpref.csv")
-
-write.csv(inverse_mapping(TCGAmodel_mutRNA_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_mutRNA.csv")
-
-write.csv(inverse_mapping(TCGAmodel_mutRNAref_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_mutRNAref.csv")
-
-write.csv(inverse_mapping(TCGAmodel_mutprot_prof,
-                          geneindex_var = geneindex),
-          "Results/Profiles/Fumia_TCGA_mutprot.csv")
-
+          "Results/Profiles/Fumia_TCGA_allexp_norm.csv")
 
 ```
 
