@@ -451,8 +451,8 @@ binarize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.plo
     logi_OS <- ref_criteria$Category=="Unimodal" | ref_criteria$Category=="ZeroInf"
     logi_bim <- ref_criteria$Category=="Bimodal"
     exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
-    exp_dataset[,logi_OS] <- mapply(function(x,y) OSclass(x,y), exp_dataset[,logi_OS], ref_dataset[,logi_OS])
-    exp_dataset[,logi_bim] <- mapply(function(x,y) BIMclass(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    exp_dataset[,logi_OS] <- mapply(function(x,y) OSclass(x,y), as.data.frame(exp_dataset[,logi_OS]), as.data.frame(ref_dataset[,logi_OS]))
+    exp_dataset[,logi_bim] <- mapply(function(x,y) BIMclass(x,y), as.data.frame(exp_dataset[,logi_bim]), as.data.frame(ref_dataset[,logi_bim]))
     
     return(exp_dataset)
   }
@@ -516,9 +516,9 @@ normalize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.pl
     logi_zero <- ref_criteria$Category=="ZeroInf"
     logi_bim <- ref_criteria$Category=="Bimodal"
     exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
-    exp_dataset[,logi_uni] <- mapply(function(x,y) norm_fun_sig(x,y), exp_dataset[,logi_uni], ref_dataset[,logi_uni])
-    exp_dataset[,logi_zero] <- mapply(function(x,y) norm_fun_lin(x,y), exp_dataset[,logi_zero], ref_dataset[,logi_zero])
-    exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    exp_dataset[,logi_uni] <- mapply(function(x,y) norm_fun_sig(x,y), as.data.frame(exp_dataset[,logi_uni]), as.data.frame(ref_dataset[,logi_uni]))
+    exp_dataset[,logi_zero] <- mapply(function(x,y) norm_fun_lin(x,y), as.data.frame(exp_dataset[,logi_zero]), as.data.frame(ref_dataset[,logi_zero]))
+    exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), as.data.frame(exp_dataset[,logi_bim]), as.data.frame(ref_dataset[,logi_bim]))
     
     return(exp_dataset)
   }
