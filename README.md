@@ -1,9 +1,11 @@
 # Personalization of patient-specific logical models (PROFILE)
 
 This is a repository of data, code and analyses related to the paper "Personalization of Logical Models With Multi-Omics Data Allows Clinical Stratification of Patients". 
-The paper can accessed here: TBA.
+The paper can accessed here: https://www.frontiersin.org/articles/10.3389/fphys.2018.01965.
 
-This repository can be cited with its own DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1186270.svg)](https://doi.org/10.5281/zenodo.1186270)
+This repository can be cited with its own DOI: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1491229.svg)](https://doi.org/10.5281/zenodo.1491229)
+<!--- v1.0:[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1490059.svg)](https://doi.org/10.5281/zenodo.1490059) --->
+<!--- v1.0:[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1186270.svg)](https://doi.org/10.5281/zenodo.1186270) --->
 
 ## Getting Started
 
