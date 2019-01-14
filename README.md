@@ -7,6 +7,8 @@ This repository can be cited with its own DOI: [![DOI](https://zenodo.org/badge/
 <!--- v1.0:[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1490059.svg)](https://doi.org/10.5281/zenodo.1490059) --->
 <!--- v1.0:[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1186270.svg)](https://doi.org/10.5281/zenodo.1186270) --->
 
+A step-by step tutorial will be uploaded soon (January/February 2019).
+
 ## Getting Started
 
 This set of files and scripts is supposed to be self-sufficient. Please download data and scripts and follow instructions
