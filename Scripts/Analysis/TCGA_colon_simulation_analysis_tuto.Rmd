@@ -1,0 +1,238 @@
+---
+title: "TCGA_simulation_analysis"
+author: "Jonas BÉAL"
+date: "12/12/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+original_path <- normalizePath(getwd())
+base_folder <- dirname(dirname(original_path))
+
+knitr::opts_knit$set(root.dir = base_folder)
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+```
+
+```{r packages, echo=FALSE, message=FALSE, warning=FALSE}
+
+if (!require("pacman")) install.packages("pacman")
+list.of.packages <- c("ggplot2","tidyverse","knitr","gridExtra","magrittr","survival","survminer")
+pacman::p_load(list.of.packages, character.only = TRUE)
+
+tbl_to_df <- function(x){
+  x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var = "Patient_ID")
+}
+rename <- dplyr::rename
+select <- dplyr::select
+
+```
+
+```{r DataImport, echo=FALSE, message=FALSE, warning=FALSE}
+pheno <- c("Apoptosis", "Migration", "Invasion", "EMT", "CellCycleArrest")
+
+#Nodes data => create table for probabilities per phenotype per patient
+num_files <- 1#This number depends on the number of lists of nides used for simulations
+tabfiles <- paste("Results/Simulations/resultsN_TCGA_mutCNA_asMutants_RNA_asTransition_",1:num_files,".txt",sep="")
+for(i in 1:length(tabfiles)){
+  a1<- read.table(tabfiles[i], header = TRUE, row.names=2, sep=" ", stringsAsFactors=FALSE, fill = TRUE)
+  a1<-a1[,-c(1,2,ncol(a1))]
+  if(i==1){
+    tab <- a1
+  }else{
+    tab <- cbind(tab,a1[rownames(tab),])
+  }
+}
+simulations <- tab
+
+#Nodes data for WT => get probabilities for WT conditions
+tabfiles_WT <- paste("Results/Simulations/resultsN_WT_",1:num_files,".txt",sep="")
+for(i in 1:length(tabfiles_WT)){
+  a1<- read.table(tabfiles_WT[i], header = TRUE, row.names=2, sep=" ", stringsAsFactors=FALSE, fill = TRUE)
+  a1<-a1[,-c(1,2,ncol(a1))]
+  if(i==1){
+    tab_WT <- a1
+  }else{
+    tab_WT <- cbind(tab_WT,a1[rownames(tab),])
+  }
+}
+simulations_WT <- tab_WT
+
+
+
+#Nodes filter => suppress the nodes that do not vary much
+#Low variation
+var_nodes <- sapply(simulations, function(x) max(x, na.rm = T)-min(x, na.rm = T)) > 0.01
+#One distant outlier
+simu_dig <- round(simulations, digits = 2)
+no_dis_out <- !sapply(simu_dig, function(x) any(table(x)==dim(simulations)[1]-1))
+#All
+index <- var_nodes & no_dis_out
+print("Number of variant nodes:")
+print(sum(index))
+print("out of")
+print(dim(simulations)[2])
+
+simulations <- simulations[,index]
+
+TCGA_clin <- readxl::read_xlsx("Data/TCGA_colon/mmc1.xlsx") %>% 
+  rename(PATIENT_ID=bcr_patient_barcode, STAGE=ajcc_pathologic_tumor_stage) %>%
+  filter(type=="COAD") %>% select(PATIENT_ID, OS, OS.time, PFI, PFI.time, STAGE) %>%
+  mutate(STAGE = factor(recode(STAGE, 'Stage IA' = 'Stage I','Stage IB' = 'Stage I', 'Stage IIA' = 'Stage II', 'Stage IIB' = 'Stage II', 'Stage IIC' = 'Stage II', 'Stage IIIA' = 'Stage III', 'Stage IIIB' = 'Stage III', 'Stage IIIC' = 'Stage III', 'Stage IVA' = 'Stage IV', 'Stage IVB' = 'Stage IV', '[Discrepancy]'=NA_character_, '[Not Available]' = NA_character_, 'Stage X' = NA_character_)))
+  
+#Import information about logical model
+genenames <- read.table("Models/Cohen/Cohen_namesToHugo_curated.txt",header=T,sep="\t")
+geneindex <- strsplit(as.character(genenames[,2]), split = ",") %>% sapply(function(l){gsub(" ","",l)})
+geneindex <- data.frame(V1 = rep(genenames[,1], sapply(geneindex, length)), V2 = unlist(geneindex))
+model_nodes_HUGO <- unique(geneindex[,2]) %>% sub("^\\s+", "", .)
+
+#Prepare data
+common_patients <- intersect(substr(rownames(simulations),1,12), TCGA_clin$PATIENT_ID)
+data_plot_extended <- inner_join(TCGA_clin, rownames_to_column(simulations,var="PATIENT_ID") %>%
+                            mutate(PATIENT_ID=substr(PATIENT_ID,1,12)),
+                          by="PATIENT_ID")
+
+data_plot <- gather(data_plot_extended, key = "Phenotype", value = "Score", pheno) %>%
+  left_join(t(simulations_WT) %>% as.data.frame %>% rownames_to_column(var="Phenotype"))
+
+
+```
+
+## First descriptive plots
+
+Distribution of tumour stages across cohort :
+
+```{r stages, echo=FALSE, message=FALSE}
+AJCCcolours <- c("Stage I" = "yellowgreen", "Stage II" = "yellow", "Stage III" = "orange3", "Stage IV" = "red4")
+
+filter(data_plot_extended, !is.na(STAGE)) %>%
+  ggplot() + geom_bar(aes(x=STAGE, fill=STAGE)) + scale_fill_manual(values=AJCCcolours, name="AJCC Tumour Stages")
+
+```
+
+We plot the distributions across cohort of Apoptosis, Migration, EMT and CellCycleArrest scores imported from personalized logical models :
+
+```{r descriptive, echo=FALSE, message=FALSE}
+
+ggplot(data_plot) + geom_density(aes(x = Score, fill = Phenotype)) + 
+  geom_vline(aes(xintercept = WT, linetype = "WT"),size=1,colour="black",show.legend=T) +
+  facet_grid(Phenotype~.) + scale_linetype_manual(values = c("WT" = "twodash")) + 
+  labs(title = "Distribution of Phenotypes scores across cohort")
+
+```
+
+We can observe that personalized models are significantly less apoptotic than Wild-Type (non personalized) model. They are also more prone to EMT and Invasion in average.
+
+## Examples of possible analyses
+
+#### Tumour stages
+
+Is there any correlations between simulated phenotypes and tumour stages?
+
+```{r pheno_stages, echo=FALSE, message=FALSE}
+
+filter(data_plot, STAGE %in% c("Stage I", "Stage IV")) %>%
+  ggplot() + geom_density(aes(x = Score, fill=STAGE)) + 
+  scale_fill_manual(values=AJCCcolours, name="AJCC Tumour Stages") +
+  facet_grid(Phenotype~STAGE) +
+  labs(title = "Distribution of Phenotypes scores VS Tumour stages")
+
+```
+
+High-stage tumours appear to be less apoptotic and slightly more prone to EMT. Other phenotypes do not capture significant differences.
+
+### Survival analysis
+
+#### First continous analysis
+
+First simple Cox model using phenotypes as input
+
+```{r Survival_continuous, echo=FALSE, message=FALSE}
+
+fit <- coxph(as.formula(paste0("Surv(time = PFI.time, event = PFI) ~ ", paste(pheno,collapse = " + "))), data=data_plot_extended)
+#summary(fit)
+ggforest(fit)
+```
+
+#### Discrete cutoffs
+
+```{r Survival_cutoff, echo=FALSE, message=FALSE, warning=FALSE}
+
+data_plot %<>% mutate(Phenotypic_Status= if_else(Score>WT,1,0))
+
+binarized_plot <- function(phenotype){
+  surv_data <- filter(data_plot, Phenotype==!!phenotype)
+  fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+  diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+  pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
+    as.numeric
+  p <- ggsurvplot(fit_p, conf.int = T, 
+           legend.title='Phenotypic Group', 
+           legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
+                         paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
+           pval = pval_p,
+           pval.method = T,
+           risk.table = F, 
+           title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
+           ylim=c(0.5,1), 
+           palette = c('lightcoral','red4'))
+  print(p)
+}
+
+phenotype <- "CellCycleArrest"
+surv_data <- filter(data_plot, Phenotype==!!phenotype)
+fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
+  as.numeric
+p <- ggsurvplot(fit_p, conf.int = T, 
+         legend.title='Phenotypic Group', 
+         legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
+                       paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
+         pval = pval_p,
+         pval.method = T,
+         risk.table = F, 
+         title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
+         ylim=c(0.5,1), 
+         palette = c('lightcoral','red4'))
+print(p)
+
+phenotype <- "EMT"
+surv_data <- filter(data_plot, Phenotype==!!phenotype)
+fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
+  as.numeric
+p <- ggsurvplot(fit_p, conf.int = T, 
+         legend.title='Phenotypic Group', 
+         legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
+                       paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
+         pval = pval_p,
+         pval.method = T,
+         risk.table = F, 
+         title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
+         ylim=c(0.5,1), 
+         palette = c('lightcoral','red4'))
+print(p)
+
+phenotype <- "Migration"
+surv_data <- filter(data_plot, Phenotype==!!phenotype)
+fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
+pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
+  as.numeric
+p <- ggsurvplot(fit_p, conf.int = T, 
+         legend.title='Phenotypic Group', 
+         legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
+                       paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
+         pval = pval_p,
+         pval.method = T,
+         risk.table = F, 
+         title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
+         ylim=c(0.5,1), 
+         palette = c('lightcoral','red4'))
+print(p)
+
+```
+
