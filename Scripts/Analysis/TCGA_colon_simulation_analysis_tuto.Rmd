@@ -158,7 +158,7 @@ fit <- coxph(as.formula(paste0("Surv(time = PFI.time, event = PFI) ~ ", paste(ph
 ggforest(fit)
 ```
 
-High EMT patients are more prone to relapse/death (close to statitically significant). But Migration have pro-survival effects which should encourage us to review its definition and the logical rules defining it.
+High EMT patients are more prone to relapse/death (close to statistically significant). But Migration have pro-survival effects which should encourage us to review its definition and the logical rules defining it.
 
 #### Discrete cutoffs
 
