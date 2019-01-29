@@ -1,1 +1,2 @@
-Look at Tutorial.pdf to see where you can download this file
+The data can be downloaded from the cBioPortal (http://www.cbioportal.org/datasets) under the label Colorectal Adenocarcinoma (TCGA, PanCancer Atlas).
+See Tutorial_PROFILE.pdf for pipeline and instructions.

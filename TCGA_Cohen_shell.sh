@@ -4,12 +4,12 @@ ulimit -n 3000
 
 model=Cohen
 
-#Example 2 pf simulations using mutations as node activity status and normalized RNA as transitions rates with an amplification factor of 100
-#Loop on model nodes in order to save values for all nodes (using all nodes as outputs in a unique simulation is not recommended)
+#Example of simulations using mutations+CNA as node activity status and normalized RNA as transitions rates with an amplification factor of 100
+#Loop on model nodes in order to save values for all nodes (using all nodes as outputs in a unique simulation is not recommended and can result in an exponential computation time)
 
 sim_case=TCGA_mutCNA_asMutants_RNA_asTransition
 
-list1="Apoptosis,Migration,Invasion,EMT,CellCycleArrest"
+list1="Apoptosis,Migration,Invasion,EMT"
 #list2="Snai1,Snai2,Vim,Zeb1,Zeb2,Twist1,Cdh1,Cdh2"
 #list3="p73,p63,p53"
 #list4="p21,CTNNB1,DKK1,TGFbeta,NICD"

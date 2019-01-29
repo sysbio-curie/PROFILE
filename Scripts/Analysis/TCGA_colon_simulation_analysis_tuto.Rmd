@@ -15,6 +15,9 @@ knitr::opts_knit$set(root.dir = base_folder)
 futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
 ```
 
+Please note that the analyses below have been designed to illustrate the possibilities of the PROFILE method in a relatively simple configuration. For a more detailed description and examples, please refer to the article:
+"Personalization of Logical Models With Multi-Omics Data Allows Clinical Stratification of Patients", Béal et al (2018) https://www.frontiersin.org/articles/10.3389/fphys.2018.01965
+
 ```{r packages, echo=FALSE, message=FALSE, warning=FALSE}
 
 if (!require("pacman")) install.packages("pacman")
@@ -30,7 +33,7 @@ select <- dplyr::select
 ```
 
 ```{r DataImport, echo=FALSE, message=FALSE, warning=FALSE}
-pheno <- c("Apoptosis", "Migration", "Invasion", "EMT", "CellCycleArrest")
+pheno <- c("Apoptosis", "Migration", "Invasion", "EMT")
 
 #Nodes data => create table for probabilities per phenotype per patient
 num_files <- 1#This number depends on the number of lists of nides used for simulations
@@ -111,7 +114,7 @@ filter(data_plot_extended, !is.na(STAGE)) %>%
 
 ```
 
-We plot the distributions across cohort of Apoptosis, Migration, EMT and CellCycleArrest scores imported from personalized logical models :
+We plot the distributions across cohort of Apoptosis, Migration, EMT and Invasion scores imported from personalized logical models :
 
 ```{r descriptive, echo=FALSE, message=FALSE}
 
@@ -128,7 +131,7 @@ We can observe that personalized models are significantly less apoptotic than Wi
 
 #### Tumour stages
 
-Is there any correlations between simulated phenotypes and tumour stages?
+Are there any correlations between simulated phenotypes and tumour stages?
 
 ```{r pheno_stages, echo=FALSE, message=FALSE}
 
@@ -146,7 +149,7 @@ High-stage tumours appear to be less apoptotic and slightly more prone to EMT. O
 
 #### First continous analysis
 
-First simple Cox model using phenotypes as input
+First simple Cox model using phenotypes as inputs. Survival analysis is performed using Progression-Free Interval (PFI) as defined in Liu et al. (2018)
 
 ```{r Survival_continuous, echo=FALSE, message=FALSE}
 
@@ -155,48 +158,15 @@ fit <- coxph(as.formula(paste0("Surv(time = PFI.time, event = PFI) ~ ", paste(ph
 ggforest(fit)
 ```
 
+High EMT patients are more prone to relapse/death (close to statitically significant). But Migration have pro-survival effects which should encourage us to review its definition and the logical rules defining it.
+
 #### Discrete cutoffs
+
+Now we use binarized status for phenotypic scores: either higher or lower than Wild-Type model (non personalized). We can observe the same kind of expected behaviour (for EMT) and unexpected behaviour (for Migration).
 
 ```{r Survival_cutoff, echo=FALSE, message=FALSE, warning=FALSE}
 
 data_plot %<>% mutate(Phenotypic_Status= if_else(Score>WT,1,0))
-
-binarized_plot <- function(phenotype){
-  surv_data <- filter(data_plot, Phenotype==!!phenotype)
-  fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
-  diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
-  pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
-    as.numeric
-  p <- ggsurvplot(fit_p, conf.int = T, 
-           legend.title='Phenotypic Group', 
-           legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
-                         paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
-           pval = pval_p,
-           pval.method = T,
-           risk.table = F, 
-           title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
-           ylim=c(0.5,1), 
-           palette = c('lightcoral','red4'))
-  print(p)
-}
-
-phenotype <- "CellCycleArrest"
-surv_data <- filter(data_plot, Phenotype==!!phenotype)
-fit_p <- survfit(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
-diff_p <- survdiff(Surv(time = PFI.time, event = PFI) ~ Phenotypic_Status, data = surv_data)
-pval_p <- formatC(1 - pchisq(diff_p$chisq, length(diff_p$n) - 1), format="e",digits=2) %>%
-  as.numeric
-p <- ggsurvplot(fit_p, conf.int = T, 
-         legend.title='Phenotypic Group', 
-         legend.labs=c(paste0('Low\n(',sum(surv_data$Phenotypic_Status==0),' indiv.)'),
-                       paste0('High\n(',sum(surv_data$Phenotypic_Status==1),' indiv.)')),
-         pval = pval_p,
-         pval.method = T,
-         risk.table = F, 
-         title=paste0('Survival Curves Based on ', phenotype,' Scores\n(compared with WT models)'), 
-         ylim=c(0.5,1), 
-         palette = c('lightcoral','red4'))
-print(p)
 
 phenotype <- "EMT"
 surv_data <- filter(data_plot, Phenotype==!!phenotype)
@@ -236,3 +206,4 @@ print(p)
 
 ```
 
+The above examples are essentially for illustrative purposes. You are encouraged to test more targeted analyses based on your question of interest.
