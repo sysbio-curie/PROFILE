@@ -1,0 +1,989 @@
+---
+title: "Prostate_GDSC_profiles_PKN"
+author: "AM"
+date: "Done May 2018 - Run `r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE)
+
+#Paths
+original_path <- normalizePath(getwd())
+base_folder <- dirname(dirname(original_path))
+
+knitr::opts_knit$set(root.dir = base_folder)
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+```
+
+## Objectives
+
+Generate patients profiles from GDSC data for further logical modelling.
+
+```{r packages_and_utilities, echo=FALSE, message=FALSE}
+# library(tidyverse)
+# library(VennDiagram)
+# library(networkD3)
+# library(knitr)
+# library(gridExtra)
+# library(mclust)
+# library(diptest)
+# library(moments)
+# library(magrittr)
+
+if (!require("pacman")) install.packages("pacman")
+list.of.packages <- c("tidyverse", "VennDiagram", "knitr", "gridExtra", "magrittr", "networkD3", "mclust", "diptest", "moments")
+pacman::p_load(list.of.packages, character.only = TRUE)
+
+tbl_to_df <- function(x){
+  x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
+} 
+rename <- dplyr::rename
+select <- dplyr::select
+entrez_to_hugo <- function(df_input){
+    df_input <- df_input %>% mutate(Hugo_Symbol=unlist(map2(.$Hugo_Symbol,.$Entrez_Gene_Id, function(x,y) if(y %in% HUGO_Entrez$`Entrez Gene ID` & !(y %in% .$Entrez_Gene_Id[duplicated(.$Entrez_Gene_Id) | duplicated(.$Entrez_Gene_Id, fromLast = T)])) HUGO_Entrez$`Approved Symbol`[which(HUGO_Entrez$`Entrez Gene ID`==y)] else x ))) 
+    dupli <- duplicated(df_input$Hugo_Symbol) | duplicated(df_input$Hugo_Symbol, fromLast = T)
+    df_input$Hugo_Symbol[dupli] <- paste(df_input$Hugo_Symbol[dupli],df_input$Entrez_Gene_Id[dupli],sep = "-")
+    df_output <- df_input %>% select(-Entrez_Gene_Id) %>% select(-matches("^X[0-9]+$"))
+}
+
+tibble_transpose <- function(df_input){
+  df_output <- df_input %>% gather(var, value, -Hugo_Symbol) %>%
+    spread(Hugo_Symbol, value) %>%
+    rename(PATIENT_ID=var) %>% 
+    type_convert
+}
+```
+
+# Independent omics profiles
+
+## CellLines dataset recap
+
+More than 300 patients with several kinds of omics data: exome-sequencing, Copy Number Alterations (CNA), RNA, proteomics and clinical annotations.
+
+```{r GDSC_import, echo=FALSE, message=FALSE, warning=FALSE}
+# rm(list=ls())
+CL_clin <-read_delim("./Data/CL/Clin_GDSC_table1.txt", delim = "\t") 
+colnames(CL_clin)[1]<-"PATIENT_ID"
+colnames(CL_clin)[2]<-"COSMIC_ID"
+CL_clin2 <-read_delim("./Data/CL/Clin_GDSC_table2.txt", delim = "\t")
+colnames(CL_clin2)[1]<-"PATIENT_ID"
+CL_clin%<>% left_join(.,CL_clin2)
+rm(CL_clin2)
+
+#Due to inconsistencies in genes names (DEC1 replaced by 1-Dec for instance), Entrez ID are used to recover proper HUGO names. Import HUGO/Entrez table for later qualiity check
+#Some tables have to be transposed
+HUGO_Entrez <- read_delim("./Data/Common/HUGO_Entrez.txt", delim = "\t") %>% na.omit
+conv1<-read_delim("./Data/CL/Clin_GDSC_toCCLE_conversion.txt", delim = "\t") %>% .[,c(2,4)]
+colnames(conv1)<-c("PATIENT_ID","CCLE")
+
+#Import CellLines mutations data
+CL_mut <- read_delim("./Data/CL/Mut_GDSC_WES_results.txt", delim = "\t") %>% select(SAMPLE, COSMIC_ID,Gene,AA,Classification) %>% rename(PATIENT_ID=SAMPLE) %>% rename(Hugo_Symbol=Gene) 
+
+#Import and process CellLines CNA data
+CL_CNA <- read_delim("./Data/CL/CNA_GDSC_Gene_level_CN.txt", delim = "\t") 
+# Gene level copy number analysis based PICNIC analysis of Affymetrix SNP6.0 array data.
+# Four comma seperated peices of data are presented for each gene cell line combination (n1,n2,n3,n4), hyphen (-) is used where the value is unknown:-
+# n1 - Maximum copy number of any genomic segment containing coding sequence of the gene (-1 indicates a value could not be assigned).
+# n2 - Minimum copy number of any genomic segment containing coding sequence of the gene (-1 indicates a value could not be assigned).
+# n3 - Zygosity - (H) if all segments containing gene sequence are heterozygous, (L) if any segment containing coding sequence has LOH, (0) if the complete coding sequence of the gene falls within a homozygous deletion.
+# n4 - Disruption (D) if the gene spans more than 1 genomic segment (-) if no disruption occures.
+# Therefore:
+# 2,2,H,-	Gene resides on a single genomic segment in a diploid region of the genome.
+# 2,0,L,D	Gene spans multiple segments, higest copy number is 2 but part of the coding sequence is homozygously deleted, the gene is disrupted.
+# 13,13,H,-	Gene resides on a single genomic segment of copy number 13 in a heterozygous part of the genome (amplification).
+# 14,12,L,D	Gene spans multiple genomic segments all of which are amplified to 12 or more copies, some or all segments have LOH, the gene is disrupted.
+# 0,0,0,-	Complete gene sequence falls within a homozygous deletion.
+
+CL_CNAa <- CL_CNA %>% .[-(1),-(2:4)] %>% .[which(.$gene %in% HUGO_Entrez$`Approved Symbol`),]
+colnames(CL_CNAa)[1]<-"Hugo_Symbol"
+CL_CNAa[] <- lapply(CL_CNAa, function(x) (gsub("^-1$",NA,gsub(",.*","",x, perl = T), perl = T)))
+CL_CNAa %<>% .[rowSums(is.na(.))<(ncol(.)-1),] %>% tibble_transpose
+
+matCNA <- CL_CNAa %>% .[,2:ncol(.)] %>% lapply(., as.numeric) %>% as.data.frame(.) %>% round(.) %>% - 2
+matCNA[matCNA > 2] <- 2
+matCNA[matCNA < -2] <- -2
+matCNA[matCNA == "NA"] <- NA
+matCNA1 <- cbind(CL_CNAa[,1],matCNA)
+CL_CNA <- matCNA1
+rm(matCNA,matCNA1,CL_CNAa)
+
+#Import and process CellLines RNA data
+CL_RNA <- read_delim("./Data/CL/RNA_GDSC_gene_attribute_matrix_cleaned.txt", delim="\t")
+colnames(CL_RNA)[1]<-"Hugo_Symbol"
+CL_RNA %<>% .[-(1:2),-(2:3)]  %>% tibble_transpose 
+CL_RNAnum <- CL_RNA %>% .[,2:ncol(.)] %>% lapply(., as.numeric) %>% cbind(CL_RNA[,1],.)
+CL_RNA <- CL_RNAnum
+rm(CL_RNAnum)
+
+# Looking for the reference sample:
+# BPH-1 is a benign hyperplasia, and PWR-1E is normal epithelium
+# GDSC: It has 8 prostate cell lines: 22RV1, BPH-1 (is NOT PRAD cancer type, a benign prostate hyperplasia), DU-145, LNCaP-Clone-FGC, NCI-H660, PC-3, PWR-1E (normal tissue), VCaP
+#CL_clin$PATIENT_ID %>% .[grepl("BPH|PWR", .)]
+#CL_RNA$PATIENT_ID %>% .[grepl("BPH|PWR", .)]
+CL_RNAref <- CL_RNA %>% filter(.$PATIENT_ID =="BPH-1")
+
+#Genes involved in model
+genenames <- read.table("./Models/PKN/PKN_genes.txt",header=T,sep="\t")
+geneindex <- strsplit(as.character(genenames[,2]), split = ",") %>% sapply(function(l){gsub(" ","",l)})
+geneindex <- data.frame(V1 = rep(genenames[,1], sapply(geneindex, length)), V2 = unlist(geneindex))
+model_nodes_HUGO <- unique(geneindex[,2]) %>% sub("^\\s+", "", .)
+
+#Create new variables with only genes related to the model
+CLmodel_mut <- CL_mut %>% filter(Hugo_Symbol %in% model_nodes_HUGO)
+CLmodel_CNA <- CL_CNA %>% select(PATIENT_ID, one_of(model_nodes_HUGO))
+CLmodel_RNA <- CL_RNA %>% select(PATIENT_ID, one_of(model_nodes_HUGO))
+CLmodel_RNAref <- CL_RNAref %>% select(PATIENT_ID, one_of(model_nodes_HUGO))
+```
+
+Most patients have all omics data:
+
+```{r VennGDSC, echo=FALSE, eval=TRUE}
+flog.threshold(ERROR)
+
+CL_clin_patients <- CL_clin$PATIENT_ID
+
+grid.draw(venn.diagram(
+  list(CNA=CL_CNA$PATIENT_ID, RNA=CL_RNA$PATIENT_ID, 
+       Mut=unique(CL_mut$PATIENT_ID),
+       Clinical=CL_clin_patients), 
+  filename=NULL, 
+  col = "transparent", 
+  fill = c("cornflowerblue", "green", "yellow", "darkorchid1"), 
+  alpha = 0.5, 
+  label.col = c("orange", "white", "darkorchid4", "white", "white", "white", "white", "white", "darkblue", "white", "white", "white", "white", "darkgreen", "white"), 
+  cex = 1.5, 
+  fontface = "bold", 
+  cat.default.pos = "text", 
+  cat.col = c("darkblue", "darkgreen", "orange", "darkorchid4"), 
+  cat.cex = 1.5, 
+  cat.pos = 0, 
+  category.names = c("CNA","RNA","Mutations","Clinical"),
+  main = "CL - Patients and available data types and clinical information"))
+
+grid.newpage()
+grid.draw(venn.diagram(
+  list(
+    Model=model_nodes_HUGO, 
+    Mutants = unique(CL_mut$Hugo_Symbol), 
+    CNA=CL_CNA %>% select(-PATIENT_ID) %>% colnames, 
+    RNA=CL_RNA %>% select(-PATIENT_ID) %>% colnames
+       ), 
+  filename=NULL, 
+  main = "Model genes and available data types", 
+  col = "transparent", 
+  fill = c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3"),
+  alpha = 0.5, cex = 1, fontface = "bold", 
+  cat.default.pos = "text", 
+  cat.col = c("dodgerblue", "goldenrod1", "darkorange1", "seagreen3"),
+  cat.cex = 1.5, 
+  cat.pos = c(0,0,0,0),
+  category.names = c("Model","Mutations","CNA","RNA"),
+  cat.dist = c(0.2,0.2,0.1,0.1)))
+
+```
+
+We investigate relations betwenn RNAseq data and BC subtypes. Subtypes have been defined based on PAM50 method. First, here is the distribution of BC subtypes across the cohort:
+
+```{r Description_GDSC, echo=FALSE}
+ggplot(CL_clin)+geom_bar(aes(x=`GDSC Tissue descriptor 1`, fill=`GDSC Tissue descriptor 1`)) + ggtitle("Distribution of subtypes in GDSC cohort")
+```
+
+RNAseq for all genes is projected on PC1/PC2 space (from Principal Component Analysis).
+
+```{r GLEASON_PKN_GDSC, echo=FALSE}
+
+CL_RNA %>% select(-PATIENT_ID) %>% prcomp %>% .$x %>% as.tibble %>%
+  mutate(PATIENT_ID=CL_RNA$PATIENT_ID) %>% full_join(CL_clin, by="PATIENT_ID") %>%
+  ggplot(aes(x=PC1, y=PC2, colour=PATIENT_ID))+geom_point()+ggtitle("All-genes PKN projection (based on RNAseq)")
+
+CL_RNA %>% select(-PATIENT_ID) %>% prcomp %>% .$x %>% as.tibble %>%
+  mutate(PATIENT_ID=CL_RNA$PATIENT_ID) %>% full_join(CL_clin, by="PATIENT_ID") %>%
+  ggplot(aes(x=PC1, y=PC2, colour=`GDSC Tissue descriptor 1`))+geom_point()+ggtitle("Subtype and All-genes PKN projection (based on RNAseq)")
+```
+
+# Processing pipeline
+
+## Mutations profiles
+
+We need to assign Boolean effects to mutations: either 0 (inactivating) or 1 activating. A mutation can stay unassigned in absence of any evidence.
+
+```{r Classical, echo=FALSE, message=FALSE}
+
+Inactivating_mutations <- c("nonsense", "frameshift", "ess_splice")
+
+#OncoKB database for missense assignments
+OncoKB <- read_delim("Data/Common/allAnnotatedVariants.txt", delim = "\t") %>% mutate(Label=paste(Gene, Alteration, sep="_"))
+
+#Functionnal inference based on Tokheim et al., 2020+ method
+OncoTSG <- read_delim("Data/Common/2020_pancancer.csv", delim = ";", skip = 1) %>% select(gene,`oncogene q-value`,`tsg q-value`)
+oncogenes <- OncoTSG %>% filter(`oncogene q-value`<=0.1) %>% select(gene) %>% unlist %>% unname
+tsg <- OncoTSG %>% filter(`tsg q-value`<=0.1) %>% select(gene) %>% unlist %>% unname
+
+#The following function performs mutations (from exome-sequencing) assignemnt to 0 or 1 with several methods
+mutations_assignment <- function(x){
+  # x<-CL_mut
+  output <-  x %>% 
+    
+    #Assign inactivating mutations to 0 and write label for further missense annotation
+    mutate(Label=paste(Hugo_Symbol, sub("^p.","",CL_mut$AA), sep="_"), Method=ifelse(Classification %in% Inactivating_mutations, "Inactivating", NA), BIN=ifelse(Classification %in% Inactivating_mutations, 0, NA)) %>%
+    mutate(Method=ifelse(Classification == "Silent", "Silent", Method)) %>%
+    
+    #Assign missense mutations present in OncoKB
+    mutate(Method=ifelse(Label %in% OncoKB$Label, "OncoKB", Method)) %>%
+    mutate(BIN=ifelse(Method=="OncoKB", 
+                      ifelse(
+                        grepl("Gain",OncoKB$`Mutation Effect`[match(Label, OncoKB$Label)]),1,
+                        ifelse(
+                          grepl("Loss",OncoKB$`Mutation Effect`[match(Label, OncoKB$Label)]),0,
+                                    BIN)
+                        ),
+                      BIN)) %>%
+  
+  #Write remaining categories
+  mutate(Method = ifelse(is.na(Method), "Not Processed", Method)) %>%
+  mutate(BIN = ifelse(is.na(BIN), "Not Assigned", BIN)) %>%
+  mutate(Status=ifelse(Hugo_Symbol %in% model_nodes_HUGO, "Model-related gene", "Out of scope"))
+}
+
+CL_mut <- mutations_assignment(CL_mut)
+CLmodel_mut <- CL_mut %>% filter(Hugo_Symbol %in% model_nodes_HUGO)
+
+```
+
+Assignement methods and their respective influence:
+
+```{r Sankey_plots, echo=FALSE, message=FALSE}
+sankey_plot <- function(x) {
+  
+  x <- bind_rows(select(x,Method,BIN) %>% rename(source=Method, target=BIN),select(x,BIN,Status) %>% rename(source=BIN, target=Status)) %>% table %>% as.data.frame %>% as.tibble %>% rename(value=Freq) %>%  filter(value!=0) %>% mutate(source=as.character(source), target=as.character(target)) 
+  # Create nodes DF with the unique sources & targets from input
+  nodes <- data.frame(unique(c(x$source,x$target)),stringsAsFactors=FALSE)
+
+  nodes$ID <- as.numeric(rownames(nodes)) - 1 # zero-indexed IDs for sankeyNetwork
+  names(nodes) <- c("name", "ID")
+  nodes <- nodes %>% as.tibble %>% mutate(NodeGroup=ifelse(name %in% c("0", "1", "Not Assigned"),"Assignment",ifelse(name %in% c("Model-related gene", "Out of scope"),"Model","Method")))
+
+  links <- inner_join(x, nodes, by = c("source"="name")) %>%
+    rename(source_ID = ID) %>%
+    inner_join(nodes, by = c("target"="name")) %>%
+    rename(target_ID = ID) 
+
+  # Create Sankey Plot
+  sank <- sankeyNetwork(
+    Links = links, Nodes = nodes, Source = "source_ID", Target = "target_ID", Value = "value", NodeID = "name", NodeGroup = "NodeGroup", units = "mutations", fontSize = 12, nodeWidth = 30
+  )
+  return(sank)
+}
+
+print("Sankey plots of mutation assignments depending on methods used")
+sankey_plot(CL_mut)
+print("Sankey plots of mutation assignments depending on methods used (restricted to model-related nodes)")
+CLmodel_mut %>% sankey_plot
+```
+
+Now we can summarize patient mutation profiles after processing. In following plots we focus on model-related genes only.
+
+```{r Mutations_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+#An additional processing steo is required since one gene can carry several mutation
+mutation_fusion <- function(x){
+  #First, we only retain distinct rows
+  output_profile <- x %>% select(PATIENT_ID, Hugo_Symbol, BIN) %>% mutate(BIN=ifelse(BIN=="Not Assigned",NA,BIN)) %>% type_convert %>% distinct
+  #Then, when 0&NA or 1&NA cases appear we keep only 0/1 and discard NA information
+  logi <- duplicated(output_profile[,1:2]) | duplicated(output_profile[,1:2], fromLast = T)
+  output_profile <- filter(output_profile, !(logi & is.na(BIN)))
+  #Then, when 0&1 cases appear we keep only 0 since inactivating mutations (usually truncating) are likely to erase gain of function effects (usally achieved through missense)
+  logi <- duplicated(output_profile[,1:2]) | duplicated(output_profile[,1:2], fromLast = T)
+  output_profile <- filter(output_profile, !(logi & BIN==1))
+  
+  return(output_profile)
+}
+
+CL_mut_prof <- CL_mut %>% mutation_fusion %>% spread(Hugo_Symbol,BIN) %>% tbl_to_df
+#Restrain genes
+CLmodel_mut_prof <- CL_mut_prof %>% select(one_of(model_nodes_HUGO))
+
+#Plots per genes
+CLmodel_mut_prof %>% is.na %>% `!` %>% colSums %>% sort(decreasing=TRUE) %>% head(n=30) %>% barplot(las=2, ylab="# of mutations across cohort", main="Distribution of mutations per genes in GDSC cohort", sub="30 most mutated genes")
+#Plots per patients
+CLmodel_mut_prof %>% is.na %>% `!` %>% rowSums %>% sort(decreasing=TRUE) %>% plot(ylab="# of mutations", xlab="Patients", main="Distribution of assigned mutations per patients in GDSC cohort")
+
+```
+
+## CNA profiles
+
+For CNA, we have decided to focus on stringent amplifications/deletions corresponding to +2/-2 GISTIC results. We produce the same kind of plots.
+
+
+```{r CNA_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+
+CL_bin <- CL_CNA %>% select(PATIENT_ID, one_of(model_nodes_HUGO)) %>% tbl_to_df %>% abs %>% equals(2)
+
+#Plots per genes
+CL_bin %>% colSums %>% sort(decreasing=TRUE) %>% head(n=30) %>% barplot(las=2, ylab="# of CNA across cohort", main="Distribution of CNA per genes in GDSC cohort", sub="30 most altered genes")
+
+#Plots per patients
+CL_bin %>% rowSums %>% sort(decreasing=TRUE) %>% plot(ylab="# of CNA", xlab="Patients", main="Distribution of assigned CNA per patients in GDSC cohort")
+
+#Profiles
+cna_profile <- function(x){
+  interm <- x %>% tbl_to_df
+  interm[interm==-1 | interm==0 | interm==1] <- NA
+  interm[interm==-2] <- 0
+  interm[interm==2] <- 1
+  return(interm)
+}
+
+CL_CNA_prof <- cna_profile(CL_CNA)
+CLmodel_CNA_prof <- CL_CNA_prof %>% select(one_of(model_nodes_HUGO))
+
+```
+
+## RNA profiles
+
+RNA data is intrinsically continuous and therefore require preliminary data processing. It is important to notice that GDSC data is RNAseq (contrary to METABRIC data coming from microarray).
+
+### Binarization with classification tree
+
+```{r binarization_normalization_utilities, echo=FALSE, message=FALSE, warning=FALSE}
+#function to compute the Bimodality Index (BI) described in Wang et al. (2009)
+BI <- function(dataset) {
+  x <- dataset
+    mc <- Mclust(na.omit(x), G = 2, modelNames = "E", verbose = FALSE)
+    if (is.null(mc)) {
+      bi <- NA
+    } else {
+      sigma <- sqrt(mc$parameters$variance$sigmasq)
+      delta <- abs(diff(mc$parameters$mean))/sigma
+      pi <- mc$parameters$pro[1]
+      bi <- delta * sqrt(pi*(1-pi))
+    }
+  bi
+}
+
+#function to binarize the tails of the distribution, based on inter-quartile range (IQR), similar to methods described in teh outlier-sum statistic (Tibshirani and Hastie, 2007). Can be called with a reference dataset
+OSclass <- function(exp_dataset, ref_dataset=exp_dataset) {
+  classif <-rep(NA,length(exp_dataset))
+  q25 <- quantile(ref_dataset,0.25, na.rm = T)
+  q75 <- quantile(ref_dataset,0.75, na.rm = T)
+  IQR <- q75 - q25 #InterQuartile Range
+  classif[exp_dataset>IQR+q75] <- 1
+  classif[exp_dataset<q25-IQR] <- 0
+  return(classif)
+}
+
+#function to to binarize bimodal distributions based on a 2-modes gaussian mixture model (with equal variances). Can be called with a reference dataset
+BIMclass <- function(exp_dataset, ref_dataset=exp_dataset) {
+  mc <- Mclust(ref_dataset, modelNames = "E", G=2, verbose = FALSE)
+  classif <- rep(NA,length(exp_dataset))
+  if (diff(mc$parameters$mean)>0){
+    thresh_down <- max(mc$data[mc$classification==1 & mc$uncertainty <= 0.05])
+    thresh_up <- min(mc$data[mc$classification==2 & mc$uncertainty <= 0.05])
+    classif[exp_dataset<=thresh_down] <- 0
+    classif[exp_dataset>=thresh_up] <- 1
+  } else if (diff(mc$parameters$mean)<0){
+    thresh_down <- max(mc$data[mc$classification==2 & mc$uncertainty <= 0.05])
+    thresh_up <- min(mc$data[mc$classification==1 & mc$uncertainty <= 0.05])
+    classif[exp_dataset<=thresh_down] <- 0
+    classif[exp_dataset>=thresh_up] <- 1
+  }
+  return(classif)
+}
+
+#function for normalization of zero-inflated data
+norm_fun_lin <- function(xdat, reference = xdat){
+  x_proc <- (xdat-quantile(reference, 0.01))/quantile(xdat-quantile(reference, 0.01), 0.99)
+  x_proc[x_proc<0] <- 0
+  x_proc[x_proc>1] <- 1
+  x_proc
+}
+
+#function for normalization of unimodal data
+norm_fun_sig <- function(xdat, reference = xdat){
+  xdat <- xdat - median(reference, na.rm = T)
+  lambda <- log(3)/mad(reference, na.rm = T)
+  transformation <- function(x){
+    y <- 1/(1+exp(-lambda*x))
+    y
+  }
+  transformation(xdat) 
+}
+
+#function for normalization of unimodal data
+norm_fun_bim <- function(xdat, reference = xdat) {
+  mc <- Mclust(reference, modelNames = "E", G=2, verbose = FALSE)
+  pred <- predict.Mclust(mc,xdat)
+  if (diff(mc$parameters$mean)>0){
+    normalization <- pred$z[,2]
+  } else if (diff(mc$parameters$mean)<0){
+    normalization <- pred$z[,1]
+  }
+  normalization
+}
+```
+
+```{r RNA_profiles_original_criteria, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+#Here we compute all statistical tools and criteria needed to perform the classification of distributions in the following categories: discarded, zero-inflated, unimodal and bimodal
+
+compute_criteria <- function(exp_dataset){
+  exp_dataset <- exp_dataset %>% select(-PATIENT_ID)
+  criteria <- tibble(Gene=colnames(exp_dataset), Dip=NA, BI=NA, Kurtosis=NA, DropOutRate=NA, MeanNZ=NA, DenPeak=NA, Amplitude=NA)
+  
+  #Compute
+  pb = txtProgressBar(min = 1, max = ncol(exp_dataset), initial = 1) 
+  for (i in 1:ncol(exp_dataset)){
+#  for (i in 1:10){
+    x <- na.omit(unlist(exp_dataset[,i]))
+    criteria$Amplitude[i] <- max(x)-min(x)
+    
+    if (criteria$Amplitude[i] !=0){
+      criteria$Dip[i] <- dip.test(x)$p.value
+      criteria$BI[i] <- BI(x)
+      criteria$Kurtosis[i] <- kurtosis(x)-3
+      criteria$DropOutRate[i] <- sum(x==0)/length(x)
+      criteria$MeanNZ[i] <- sum(x)/sum(x!=0)
+      den <- density(x, na.rm = T)
+      criteria$DenPeak[i] <- den$x[which.max(den$y)]
+    }
+    
+    setTxtProgressBar(pb,i)
+  }
+  
+  threshold <- median(criteria$Amplitude)/10
+  criteria <- criteria %>% 
+    mutate(Category=ifelse(Amplitude<threshold | DropOutRate>0.95, "Discarded", NA)) %>%
+    mutate(Category=ifelse(is.na(Category) & (BI>1.5 & Dip<0.05 & Kurtosis < 1),"Bimodal",Category)) %>%
+    mutate(Category=ifelse(is.na(Category) & DenPeak<threshold, "ZeroInf", Category)) %>%
+    mutate(Category=ifelse(is.na(Category), "Unimodal", Category))
+  
+  return(criteria)
+}
+
+criteria_CL <- compute_criteria(CL_RNA)
+criteria_CLref <- compute_criteria(CL_RNAref)
+```
+
+Now, what about the distribution of gene categories (Bimodal, Unimodal...) across the cohort?
+
+```{r RNA_profiles_original_catDistrib, echo=FALSE, message=FALSE, warning=FALSE}
+print("GDSC assignments:")
+kable(t(table(criteria_CL$Category)))
+print("CL_ref assignments:")
+kable(t(table(criteria_CLref$Category)))
+print("Consistency between both sub-cohorts:")
+kable(table(criteria_CL$Category, criteria_CLref$Category))
+print("GDSC assignments for model-related nodes:")
+kable(t(table(criteria_CLref %>% filter(Gene %in% model_nodes_HUGO) %>% select(Category))))
+
+```
+
+Here are some distributions plots randomly picked in each category in GDSC cohort
+
+```{r RNA_profiles_original_catPlot, echo=FALSE, message=FALSE, warning=FALSE}
+criteria_CL %>% filter(Category=="Bimodal") %>% select(Gene) %>% slice(sample(nrow(.),20)) %>% unlist %>% select(CL_RNA,.) %>%  gather %>% ggplot(mapping = aes(x = value)) + geom_histogram(bins = 30) + facet_wrap(~key, scales = 'free') + ggtitle("20 random Bimodal genes")
+
+
+criteria_CL %>% filter(Category=="Unimodal") %>% select(Gene) %>% slice(sample(nrow(.),20)) %>% unlist %>% select(CL_RNA,.) %>%  gather %>%
+  ggplot(mapping = aes(x = value)) + geom_histogram(bins = 30) + facet_wrap(~key, scales = 'free') + ggtitle("20 random Unimodal genes")
+
+criteria_CL %>% filter(Category=="ZeroInf") %>% select(Gene) %>% slice(sample(nrow(.),20)) %>% unlist %>% select(CL_RNA,.) %>%  gather %>%
+  ggplot(mapping = aes(x = value)) + geom_histogram(bins = 30) + facet_wrap(~key, scales = 'free') + ggtitle("20 random Zero-inflated genes")
+```
+
+And depending on distribution category, we can perform binarization
+
+```{r RNA_profiles_original_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+#function to apply the proper binarization method depending on the gene expression distribution category
+binarize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.plot=F){
+  if(!missing(gene)){
+    
+    gene_cat <- ref_criteria %>% filter(Gene==gene) %>% select(Category) %>% unlist
+    x <- unlist(select(exp_dataset,gene))
+    x_ref <- unlist(select(ref_dataset,gene))
+    
+    if (gene_cat=="Discarded"){
+        stop("Discarded gene")
+      
+      } else if (gene_cat=="Bimodal"){
+        gene_bin <- BIMclass(x,x_ref)
+        
+      } else {
+        gene_bin <- OSclass(x,x_ref)
+      }
+    names(gene_bin) <- exp_dataset$PATIENT_ID
+    if(show.plot==T){
+      if(all(is.na(gene_bin))){
+        tibble(Continuous=x) %>% ggplot(aes(x=Continuous))+geom_histogram(bins=30)+ggtitle(gene)
+      } else {
+        tibble(Continuous=x, Discrete=factor(gene_bin)) %>% ggplot(aes(x=Continuous, fill=Discrete))+geom_histogram(bins=30)+ggtitle(gene)
+      }
+    } else {
+      return(gene_bin)
+    }
+    
+  } else {
+    exp_dataset <- tbl_to_df(exp_dataset) 
+    ref_dataset <- tbl_to_df(ref_dataset)
+    if(dim(exp_dataset)[2] != dim(ref_criteria)[1]){stop("Different number of genes")}
+    logi_dis <- ref_criteria$Category=="Discarded"
+    logi_OS <- ref_criteria$Category=="Unimodal" | ref_criteria$Category=="ZeroInf"
+    logi_bim <- ref_criteria$Category=="Bimodal"
+    exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
+    exp_dataset[,logi_OS] <- mapply(function(x,y) OSclass(x,y), exp_dataset[,logi_OS], ref_dataset[,logi_OS])
+    exp_dataset[,logi_bim] <- mapply(function(x,y) BIMclass(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    
+    return(exp_dataset)
+  }
+  
+}
+
+print("Bimodal example:")
+binarize_exp(CL_RNA,CL_RNA, criteria_CL, "HOXA1", T)
+print("Unimodal example:")
+binarize_exp(CL_RNA,CL_RNA, criteria_CL, "PPAP2B", T)
+print("ZeroInf example:")
+binarize_exp(CL_RNA,CL_RNA, criteria_CL, "AKAP3", T)
+
+CL_RNA_prof <- binarize_exp(CL_RNA,CL_RNA, criteria_CL)
+
+CL_RNA_prof %>% select(one_of(model_nodes_HUGO)) %>% is.na %>% `!` %>% rowSums %>% sort(decreasing=TRUE) %>% plot(ylab="# of bin. RNA", xlab="Patients", main="Distribution of binarized RNA per patients in GDSC cohort")
+
+CL_RNA_prof %>% select(one_of(model_nodes_HUGO)) %>% is.na %>% `!` %>% colSums %>% sort(decreasing=TRUE) %>%  head(n=50) %>% barplot(las=2, ylab="# of mutations across cohort", main="Distribution of mutations for top 50 genes in GDSC cohort")
+
+#Profiles
+CLmodel_RNA_prof <- CL_RNA_prof %>% select(one_of(model_nodes_HUGO))
+```
+
+```{r RNA_profiles_GDSCref, echo=FALSE, message=FALSE, warning=FALSE}
+
+CL_RNAref_prof <- binarize_exp(CL_RNA,CL_RNAref, criteria_CLref)
+
+#Plots
+print("Some possible differences between methods w/ and w/o reference")
+binarize_exp(CL_RNA, CL_RNA, criteria_CL, 'PPAP2B',T)
+binarize_exp(CL_RNA, CL_RNAref, criteria_CLref, 'PPAP2B',T)
+
+#Profiles
+CLmodel_RNAref_prof <- CL_RNAref_prof %>% select(one_of(model_nodes_HUGO))
+
+```
+
+
+```{r prot_profiles, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#same criteria computation with proteomics data
+compute_criteria_prot <- function(exp_dataset){
+  exp_dataset <- exp_dataset %>% select(-PATIENT_ID)
+  criteria <- tibble(Gene=colnames(exp_dataset), Dip=NA, BI=NA, Kurtosis=NA, Amplitude=NA)
+  
+  #Compute
+  pb = txtProgressBar(min = 1, max = ncol(exp_dataset), initial = 1) 
+  for (i in 1:ncol(exp_dataset)){
+#  for (i in 1:10){
+    x <- na.omit(unlist(exp_dataset[,i]))
+    criteria$Amplitude[i] <- max(x)-min(x)
+    
+    if (criteria$Amplitude[i] !=0){
+      criteria$Dip[i] <- dip.test(x)$p.value
+      criteria$BI[i] <- BI(x)
+      criteria$Kurtosis[i] <- kurtosis(x)-3
+    }
+    
+    setTxtProgressBar(pb,i)
+  }
+  
+  threshold <- median(criteria$Amplitude)/10
+  criteria <- criteria %>% 
+    mutate(Category=ifelse(Amplitude<threshold, "Discarded", NA)) %>%
+    mutate(Category=ifelse(is.na(Category) & (BI>2 & Dip<0.05 & Kurtosis < 1),"Bimodal",Category)) %>%
+    mutate(Category=ifelse(is.na(Category), "Unimodal", Category))
+  
+  return(criteria)
+}
+
+# criteria_CL_prot <- compute_criteria_prot(CL_prot)
+# 
+# CL_prot_prof <- binarize_exp(CL_prot, CL_prot, criteria_CL_prot)
+# 
+# CL_prot_prof %>% is.na %>% `!` %>% rowSums %>% sort(decreasing=TRUE) %>% plot(ylab="# of bin. prot.", xlab="Patients", main="Distribution of binarized prot. per patients in TCGA cohort")
+# 
+# CL_prot_prof %>% is.na %>% `!` %>% colSums %>% sort(decreasing=TRUE) %>%  head(n=50) %>% barplot(las=2, ylab="# of mutations across cohort", main="Distribution of mutations per genes in TCGA cohort")
+# 
+# #Profiles
+# CLmodel_prot_prof <- CL_prot_prof %>% select(one_of(model_nodes_HUGO))
+
+```
+
+### Normalization
+
+```{r norm_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+
+normalize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.plot=F){
+  if(!missing(gene)){
+    
+    gene_cat <- ref_criteria %>% filter(Gene==gene) %>% select(Category) %>% unlist
+    x <- unlist(select(exp_dataset,gene))
+    x_ref <- unlist(select(ref_dataset,gene))
+    
+    if (gene_cat=="Discarded"){
+        stop("Discarded gene")
+      
+      } else if (gene_cat=="Bimodal"){
+        gene_bin <- norm_fun_bim(x,x_ref)
+        
+      } else if (gene_cat=="Unimodal"){
+        gene_bin <- norm_fun_sig(x,x_ref)
+        
+      } else {
+        gene_bin <- norm_fun_lin(x,x_ref)
+      }
+    names(gene_bin) <- exp_dataset$PATIENT_ID
+    
+    if(show.plot==T){
+      gene_bin %>% unlist %>% as.data.frame %>% ggplot(aes(x=.)) + geom_histogram(bins=30)+xlab(gene)
+    } else {
+      return(gene_bin)
+    }
+    
+  } else {
+    exp_dataset <- tbl_to_df(exp_dataset) 
+    ref_dataset <- tbl_to_df(ref_dataset)
+    if(dim(exp_dataset)[2] != dim(ref_criteria)[1]){stop("Different number of genes")}
+    logi_dis <- ref_criteria$Category=="Discarded"
+    logi_uni <- ref_criteria$Category=="Unimodal"
+    logi_zero <- ref_criteria$Category=="ZeroInf"
+    logi_bim <- ref_criteria$Category=="Bimodal"
+    exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
+    exp_dataset[,logi_uni] <- mapply(function(x,y) norm_fun_sig(x,y), exp_dataset[,logi_uni], ref_dataset[,logi_uni])
+    exp_dataset[,logi_zero] <- mapply(function(x,y) norm_fun_lin(x,y), exp_dataset[,logi_zero], ref_dataset[,logi_zero])
+    exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), exp_dataset[,logi_bim], ref_dataset[,logi_bim])
+    
+    return(exp_dataset)
+  }
+  
+}
+
+CL_RNA_prof_norm <- normalize_exp(CL_RNA, CL_RNA, criteria_CL)
+CL_RNAref_prof_norm <- normalize_exp(CL_RNA, CL_RNAref, criteria_CLref)
+
+CLmodel_RNA_prof_norm <- CL_RNA_prof_norm %>% select(one_of(model_nodes_HUGO))
+CLmodel_RNAref_prof_norm <- CL_RNAref_prof_norm %>% select(one_of(model_nodes_HUGO))
+
+```
+
+# Merged profiles
+
+```{r merge_patients_genes, echo=FALSE, message=FALSE, warning=FALSE}
+
+common_patients_MCR <- Reduce(intersect, list(rownames(CLmodel_mut_prof),rownames(CLmodel_CNA_prof),rownames(CLmodel_RNA_prof)))
+
+common_genes_MCR <- Reduce(intersect, list(colnames(CLmodel_CNA_prof),colnames(CLmodel_RNA_prof)))
+
+common_genes_MCRP <- Reduce(intersect, list(colnames(CLmodel_mut_prof),colnames(CLmodel_CNA_prof),colnames(CLmodel_RNA_prof)))
+
+```
+
+## Data types relations
+
+Before merging independent profiles into multi-omics profiles, let's have a look at relations between data types
+
+```{r Relations, echo=FALSE, message=FALSE, warning=FALSE}
+common_genes <- Reduce(intersect,list(colnames(CL_mut_prof),colnames(CL_CNA_prof),colnames(CL_RNA_prof)))
+
+common_patients <- Reduce(intersect,list(rownames(CL_mut_prof),rownames(CL_CNA_prof),rownames(CL_RNA_prof)))
+
+plot_data <- list(setNames(CL_mut_prof[common_patients,],paste0('mut.',names(CL_mut_prof))) %>% sapply(as.factor), 
+                  setNames(CL_CNA_prof[common_patients,],paste0('CNA.',names(CL_CNA_prof))) %>% sapply(as.factor), 
+                  setNames(CL_RNA %>% filter(PATIENT_ID %in% common_patients) %>% select(common_genes),paste0('RNA.',common_genes))) %>%
+  cbind.data.frame
+
+plot_mapping <- function(plot_data, gene){
+  if(paste0("RNA.",gene) %in% colnames(plot_data) & paste0("mut.",gene) %in% colnames(plot_data)){
+    plot_up <- plot_data %>% ggplot(aes_string(x=paste0("RNA.", gene), fill=paste0("mut.", gene)))+geom_histogram(bins=30)
+  } else {
+    print("No RNA/mut plot")
+  }
+  
+  if(paste0("RNA.",gene) %in% colnames(plot_data) & paste0("CNA.",gene) %in% colnames(plot_data)){
+    plot_down <- plot_data %>% ggplot(aes_string(x=paste0("RNA.", gene), fill=paste0("CNA.", gene)))+geom_histogram(bins=30)
+  } else {
+    print("No RNA/CNA plot")
+  }
+  grid.arrange(plot_up, plot_down)
+}
+
+# plot_mapping(plot_data,"ABHD15")
+# plot_mapping(plot_data,"AKT3")
+# plot_mapping(plot_data,"TP53BP1")
+
+#Compute CNA/RNA correlation in GDSC
+common_genes <- intersect(colnames(select(CL_CNA,-PATIENT_ID)),colnames(select(CL_RNA,-PATIENT_ID)))
+common_patients <- intersect(CL_CNA$PATIENT_ID,CL_RNA$PATIENT_ID)
+ken_CL_CNA_RNA <- mapply(function(x,y) cor(x,y,method = "kendall"), tbl_to_df(CL_CNA)[common_patients,common_genes], tbl_to_df(CL_RNA)[common_patients,common_genes])
+ken_CL_CNA_RNA %>% as.data.frame %>% ggplot(aes(x=.)) + geom_histogram(bins=30) + geom_vline(xintercept = median(ken_CL_CNA_RNA, na.rm = T)) + ggtitle("CNA/RNA correlation distribution for each gene across cohort (with median)")
+```
+
+### Mutations and CNA
+
+In particular, is there any mutation/CNA binary inconsistency?
+
+```{r incons_mut_CNA, echo=FALSE, message=FALSE, warning=FALSE}
+common_genes <- intersect(colnames(CLmodel_CNA_prof), colnames(CLmodel_mut_prof))
+common_patients <- intersect(rownames(CLmodel_CNA_prof), rownames(CLmodel_mut_prof))
+
+incons <- which(CLmodel_mut_prof[common_patients, common_genes]==0 & CLmodel_CNA_prof[common_patients, common_genes]==1 | CLmodel_mut_prof[common_patients, common_genes]==1 & CLmodel_CNA_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col], Mut=diag(as.matrix(CLmodel_mut_prof[Patient,Gene])), CNA=diag(as.matrix(CLmodel_CNA_prof[Patient,Gene]))) %>% select(Patient,Gene, Mut, CNA)
+
+if (nrow(incons)==0){
+  print("No mutation/CNA binary inconsistency")
+}else{
+  kable(incons)
+}
+```
+
+In case of ambiguity, pritority is given to mutations over CNA
+
+```{r merge_mut_CNA, echo=FALSE, message=FALSE, warning=FALSE}
+
+mut_plus_CNA <- function(mut,cna){
+  merged <- mut
+  merged[is.na(merged)] <- cna[is.na(merged)]
+  return(merged)
+}
+
+CLmodel_mutCNA_prof = CLmodel_mutCNAneg_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(CLmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(CLmodel_CNA_prof))) %>% as.data.frame
+CLmodel_CNAneg_prof <- CLmodel_CNA_prof
+CLmodel_CNAneg_prof[CLmodel_CNAneg_prof==1] <- NA
+
+for(i in 1:dim(CLmodel_mutCNA_prof)[2]){
+  gene <- colnames(CLmodel_mutCNA_prof)[i]
+  if (gene %in% colnames(CLmodel_mut_prof)){
+    CLmodel_mutCNA_prof[,gene] <- mut_plus_CNA(CLmodel_mut_prof[common_patients_MCR,gene], CLmodel_CNA_prof[common_patients_MCR,gene])
+    CLmodel_mutCNAneg_prof[,gene] <- mut_plus_CNA(CLmodel_mut_prof[common_patients_MCR,gene], CLmodel_CNAneg_prof[common_patients_MCR,gene])
+  } else {
+    CLmodel_mutCNA_prof[,gene] <- CLmodel_CNA_prof[common_patients_MCR,gene]
+    CLmodel_mutCNAneg_prof[,gene] <- CLmodel_CNAneg_prof[common_patients_MCR,gene]
+  }
+}
+
+
+```
+
+### CNA and RNA
+
+```{r incons_CNA_RNA, echo=FALSE, message=FALSE, warning=FALSE}
+common_genes <- intersect(colnames(CLmodel_CNA_prof), colnames(CLmodel_RNA_prof))
+common_patients <- intersect(rownames(CLmodel_CNA_prof), rownames(CLmodel_RNA_prof))
+
+incons <- which(CLmodel_CNA_prof[common_patients, common_genes]==0 & CLmodel_RNA_prof[common_patients, common_genes]==1 | CLmodel_CNA_prof[common_patients, common_genes]==1 & CLmodel_RNA_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  CNA=diag(as.matrix(CLmodel_CNA_prof[Patient,Gene])), RNA=diag(as.matrix(CLmodel_RNA_prof[Patient,Gene]))) %>% select(Patient,Gene,CNA, RNA)
+
+if (nrow(incons)==0){
+  print("No RNA/CNA binary inconsistency")
+}else{
+  kable(incons)
+}
+
+```
+
+In case of ambiguity, pritority is given to RNA over CNA
+
+```{r merge_CNA_RNA, echo=FALSE, message=FALSE, warning=FALSE, eval=FALSE}
+
+CNA_plus_RNA <- function(cna,rna){
+  merged <- rna
+  merged[is.na(merged)] <- cna[is.na(merged)]
+  return(merged)
+}
+
+CLmodel_mutCNA_prof <- matrix(nrow = length(common_patients_MCR), ncol = dim(CLmodel_CNA_prof)[2], dimnames = list(common_patients_MCR,colnames(CLmodel_CNA_prof))) %>% as.data.frame
+
+for(i in 1:dim(CLmodel_mutCNA_prof)[2]){
+  gene <- colnames(CLmodel_mutCNA_prof)[i]
+  if (gene %in% colnames(CLmodel_mut_prof)){
+    CLmodel_mutCNA_prof[,gene] <- mut_plus_CNA(CLmodel_mut_prof[common_patients_MCR,gene], CLmodel_CNA_prof[common_patients_MCR,gene])
+  } else {
+    CLmodel_mutCNA_prof[,gene] <- CLmodel_CNA_prof[common_patients_MCR,gene]
+  }
+}
+
+
+```
+
+### RNA and Prot - Not applicable
+
+When available, prot is used. Otherwise, we use RNA
+
+```{r RNA_prot, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+common_genes <- intersect(colnames(CLmodel_RNA_prof), colnames(CLmodel_prot_prof))
+common_patients <- intersect(rownames(CLmodel_RNA_prof), rownames(CLmodel_prot_prof))
+
+incons <- which(CLmodel_RNA_prof[common_patients, common_genes]==0 & CLmodel_prot_prof[common_patients, common_genes]==1 | CLmodel_RNA_prof[common_patients, common_genes]==1 & CLmodel_prot_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  RNA=diag(as.matrix(CLmodel_RNA_prof[Patient,Gene])), Prot=diag(as.matrix(CLmodel_prot_prof[Patient,Gene]))) %>% select(Patient,Gene,RNA, Prot)
+
+if (nrow(incons)==0){
+  print("No RNA/Prot binary inconsistency")
+}else{
+  kable(incons)
+}
+
+RNA_and_prot <- function(RNA,prot){
+  common_patients <- intersect(rownames(RNA), rownames(prot))
+  merged <- RNA[common_patients,]
+  common_genes <- intersect(colnames(RNA), colnames(prot))
+  merged[common_patients, common_genes] <- prot[common_patients,common_genes]
+  only_prot_genes <- colnames(prot)[!(colnames(prot) %in% common_genes)]
+  if (length(only_prot_genes)>0){
+    merged <- cbind.data.frame(merged, prot[common_patients,only_prot_genes])
+  }
+  return(merged)
+}
+
+# CLmodel_exp_prof <- RNA_and_prot(CLmodel_RNA_prof, CLmodel_prot_prof)
+# CLmodel_expref_prof <- RNA_and_prot(CLmodel_RNAref_prof, CLmodel_prot_prof)
+# CLmodel_exp_prof_norm <- RNA_and_prot(CLmodel_RNA_prof_norm, CLmodel_prot_prof_norm)
+# CLmodel_expref_prof_norm <- RNA_and_prot(CLmodel_RNAref_prof_norm, CLmodel_prot_prof_norm)
+
+```
+
+### Mut and Exp - Not applicable
+
+```{r mut_exp, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+common_genes <- intersect(colnames(CLmodel_mut_prof), colnames(CLmodel_exp_prof))
+common_patients <- intersect(rownames(CLmodel_mut_prof), rownames(CLmodel_exp_prof))
+
+incons <- which(CLmodel_mut_prof[common_patients, common_genes]==0 & CLmodel_exp_prof[common_patients, common_genes]==1 | CLmodel_mut_prof[common_patients, common_genes]==1 & CLmodel_exp_prof[common_patients, common_genes]==0, arr.ind = T) %>% as.data.frame %>% mutate(Patient=common_patients[row],Gene=common_genes[col],  Mut=diag(as.matrix(CLmodel_mut_prof[Patient,Gene])), Exp=diag(as.matrix(CLmodel_exp_prof[Patient,Gene]))) %>% select(Patient,Gene,Mut,Exp)
+
+if (nrow(incons)==0){
+  print("No Mut/Exp binary inconsistency")
+}else{
+  kable(incons)
+}
+
+plot_mapping(plot_data,'PIK3CA')
+
+mut_plus_exp <- function(mutations,expression){
+  all_genes <- union(colnames(mutations), colnames(expression))
+  common_patients <- intersect(rownames(mutations), rownames(expression))
+  merged_matrix <- matrix(nrow = length(common_patients), ncol = length(all_genes), dimnames = list(common_patients,all_genes)) %>% as.data.frame
+  
+  mut_plus_exp_vec <- function(mut,exp){
+    merged <- mut
+    #merged[merged==1 & exp==0] <- 0
+    merged[is.na(merged)] <- exp[is.na(merged)]
+    return(merged)
+  }
+  
+  for(gene in colnames(merged_matrix)){
+    if ((gene %in% colnames(mutations)) & (gene %in% colnames(expression))){
+      merged_matrix[,gene] <- mut_plus_exp_vec(mutations[common_patients,gene], expression[common_patients,gene])
+    } else if (gene %in% colnames(mutations)) {
+      merged_matrix[,gene] <- mutations[common_patients,gene]
+    } else {
+      merged_matrix[,gene] <- expression[common_patients,gene]
+    }
+  }
+  return(merged_matrix)
+}
+
+CLmodel_mutexp_prof <- mut_plus_exp(CLmodel_mut_prof, CLmodel_exp_prof)
+# CLmodel_mutexpref_prof <- mut_plus_exp(CLmodel_mut_prof, CLmodel_expref_prof)
+CLmodel_mutRNA_prof <- mut_plus_exp(CLmodel_mut_prof, CLmodel_RNA_prof)
+CLmodel_mutRNAref_prof <- mut_plus_exp(CLmodel_mut_prof, CLmodel_RNAref_prof)
+# CLmodel_mutprot_prof <- mut_plus_exp(CLmodel_mut_prof, CLmodel_prot_prof)
+
+```
+
+
+## Write profiles
+
+```{r write, echo=FALSE, message=FALSE, warning=FALSE}
+
+inverse_mapping <- function(dataset, datatype = 'bin', geneindex_var = geneindex){
+  patients <- rownames(dataset)
+  
+  #Deal with the problem "one gene <-> several nodes"
+  if (duplicated(geneindex_var$V2) %>% any){
+    geneindex_var %<>% mutate(V2=as.character(V2))
+    new_names <- paste0(geneindex_var[duplicated(geneindex_var$V2),2],"_",which(duplicated(geneindex_var$V2)))
+    geneindex_var[duplicated(geneindex_var$V2),2] <- new_names
+    for (gene in new_names){
+      original <- strsplit(gene,"_") %>% unlist %>% head(1)
+      if (original %in% colnames(dataset)){
+        dataset[,gene] <- dataset[,original]
+      }
+    }
+  }
+  
+  geneindex_corres <- geneindex_var %>% column_to_rownames(var="V2") 
+  
+  erased_genes <- list()
+  for (gene in colnames(dataset)){
+    if (!(gene %in% erased_genes)){
+      index <- match(gene, colnames(dataset))
+      node <- geneindex_corres[gene,] %>% as.character
+      family_size <- geneindex_var %>% filter(V1==node) %>% nrow
+      if (family_size==0){
+        stop("Correspondency problem")
+      } else if (family_size==1){
+        colnames(dataset)[index] <- node
+      } else if (family_size>1){
+        family_members <- geneindex_var %>% filter(V1==node) %>% select(V2) %>% unlist %>% as.character
+        family_df <- dataset %>% select(one_of(family_members)) #%>% select_if(~sum(!is.na(.)) > 0)
+        if (ncol(family_df)==1){
+          new_column <- family_df %>% unlist
+          erased_name <- colnames(family_df)
+          dataset <- select(dataset, -one_of(erased_name))
+        } else if (ncol(family_df)>1 & datatype=='bin'){
+          interm <- rowMeans(family_df, na.rm = T)
+          interm[interm!=0 & interm !=1] <- NA
+          interm[is.nan(interm)] <- NA
+          new_column <- interm
+          remove_index <- match(family_members, colnames(dataset))
+          dataset <- select(dataset, -remove_index)
+          erased_genes <- c(erased_genes, family_members) %>% unlist
+        } else if (ncol(family_df)>1 & datatype=='norm'){
+          new_column <- rowMeans(family_df, na.rm = T)
+          remove_index <- match(family_members, colnames(dataset))
+          dataset <- select(dataset, -remove_index)
+          erased_genes <- c(erased_genes, family_members) %>% unlist
+        }
+        dataset <- mutate(dataset, merge=new_column)
+        colnames(dataset)[ncol(dataset)] <- node
+      }
+    }
+    
+  }
+  rownames(dataset) <- patients
+  return(dataset)
+}
+if (!dir.exists("Results/Profiles")){
+  dir.create("Results/Profiles")
+}
+
+write.csv(inverse_mapping(CLmodel_mut_prof),"Results/Profiles/PKN_CL_GDSC_mutations.csv")
+write.csv(inverse_mapping(CLmodel_CNA_prof),"Results/Profiles/PKN_CL_GDSC_CNA.csv")
+write.csv(inverse_mapping(CLmodel_mutCNA_prof),"Results/Profiles/PKN_CL_GDSC_mutCNA.csv")
+write.csv(inverse_mapping(CLmodel_mutCNAneg_prof),"Results/Profiles/PKN_CL_GDSC_mutCNAneg.csv")
+write.csv(inverse_mapping(CLmodel_RNA_prof),"Results/Profiles/PKN_CL_GDSC_RNA.csv")
+write.csv(inverse_mapping(CLmodel_RNA_prof_norm, datatype='norm'),"Results/Profiles/PKN_CL_GDSC_RNA_norm.csv")
+
+# All prostate cell lines: c("22RV1","BPH-1","DU-145","LNCaP-Clone-FGC","PC-3","PWR-1E","VCaP","NCI-H660")
+# BPH-1 is a benign hyperplasia, and PWR-1E is normal epithelium
+CLinteresting<-c("22RV1","BPH-1","DU-145","LNCaP-Clone-FGC","PC-3","PWR-1E","VCaP","NCI-H660")
+DFs<-c("CLmodel_mut_prof","CLmodel_CNA_prof","CLmodel_mutCNA_prof","CLmodel_mutCNAneg_prof","CLmodel_RNA_prof","CLmodel_RNA_prof_norm")
+
+for (i in DFs){
+  i2<-get(i)[rownames(get(i)) %in% CLinteresting,]
+  assign(paste0(i,"_prost"),i2)
+}
+
+write.csv(inverse_mapping(CLmodel_mut_prof_prost),"Results/Profiles/PKN_CL_GDSC_mutations_prost.csv")
+write.csv(inverse_mapping(CLmodel_CNA_prof_prost),"Results/Profiles/PKN_CL_GDSC_CNA_prost.csv")
+write.csv(inverse_mapping(CLmodel_mutCNA_prof_prost),"Results/Profiles/PKN_CL_GDSC_mutCNA_prost.csv")
+write.csv(inverse_mapping(CLmodel_mutCNAneg_prof_prost),"Results/Profiles/PKN_CL_GDSC_mutCNAneg_prost.csv")
+write.csv(inverse_mapping(CLmodel_RNA_prof_prost),"Results/Profiles/PKN_CL_GDSC_RNA_prost.csv")
+write.csv(inverse_mapping(CLmodel_RNA_prof_norm_prost, datatype='norm'),"Results/Profiles/PKN_CL_GDSC_RNA_norm_prost.csv")
+
+write.csv(inverse_mapping(CLmodel_RNAref_prof),"Results/Profiles/PKN_CL_GDSC_RNAref.csv")
+write.csv(inverse_mapping(CLmodel_RNAref_prof_norm, datatype='norm'),"Results/Profiles/PKN_CL_GDSC_RNAref_norm.csv")
+```
+

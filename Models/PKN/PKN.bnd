@@ -1,0 +1,202 @@
+Node TNFa {
+  logic = (TNFa);
+  rate_up = @logic ? $u_TNFa : 0;
+  rate_down = @logic ? 0 : $d_TNFa;
+}
+
+Node EGF {
+  logic = (EGF);
+  rate_up = @logic ? $u_EGF : 0;
+  rate_down = @logic ? 0 : $d_EGF;
+}
+
+Node IL6 {
+  logic = (IL6);
+  rate_up = @logic ? $u_IL6 : 0;
+  rate_down = @logic ? 0 : $d_IL6;
+}
+
+Node IGF_1 {
+  logic = (IGF_1);
+  rate_up = @logic ? $u_IGF_1 : 0;
+  rate_down = @logic ? 0 : $d_IGF_1;
+}
+
+Node Survival {
+  logic = (Cell_cycle & !MYC & !Caspase8 & !Caspase9) | (Cell_cycle & MYC & !Caspase8) | (Cell_cycle & MYC & Caspase8 & !Caspase9);
+  rate_up = @logic ? $u_Survival : 0;
+  rate_down = @logic ? 0 : $d_Survival;
+}
+
+Node Cell_cycle {
+  logic = (!RPS6 & ERK1_2) | (RPS6);
+  rate_up = @logic ? $u_Cell_cycle : 0;
+  rate_down = @logic ? 0 : $d_Cell_cycle;
+}
+
+Node MYC {
+  logic = (!AR & !beta_catenin & JNK) | (!AR & beta_catenin) | (AR);
+  rate_up = @logic ? $u_MYC : 0;
+  rate_down = @logic ? 0 : $d_MYC;
+}
+
+Node Caspase8 {
+  logic = (TNFR);
+  rate_up = @logic ? $u_Caspase8 : 0;
+  rate_down = @logic ? 0 : $d_Caspase8;
+}
+
+Node Caspase9 {
+  logic = (p53);
+  rate_up = @logic ? $u_Caspase9 : 0;
+  rate_down = @logic ? 0 : $d_Caspase9;
+}
+
+Node p53 {
+  logic = (!NFkB & p38);
+  rate_up = @logic ? $u_p53 : 0;
+  rate_down = @logic ? 0 : $d_p53;
+}
+
+Node AR {
+  logic = (AKT & !DHT);
+  rate_up = @logic ? $u_AR : 0;
+  rate_down = @logic ? 0 : $d_AR;
+}
+
+Node AKT {
+  logic = (PI3K);
+  rate_up = @logic ? $u_AKT : 0;
+  rate_down = @logic ? 0 : $d_AKT;
+}
+
+Node EGFR {
+  logic = (EGF);
+  rate_up = @logic ? $u_EGFR : 0;
+  rate_down = @logic ? 0 : $d_EGFR;
+}
+
+Node RPS6 {
+  logic = (mTOR);
+  rate_up = @logic ? $u_RPS6 : 0;
+  rate_down = @logic ? 0 : $d_RPS6;
+}
+
+Node IKK {
+  logic = (!p53 & TNFR);
+  rate_up = @logic ? $u_IKK : 0;
+  rate_down = @logic ? 0 : $d_IKK;
+}
+
+Node Jak {
+  logic = (IL6R);
+  rate_up = @logic ? $u_Jak : 0;
+  rate_down = @logic ? 0 : $d_Jak;
+}
+
+Node TNFR {
+  logic = (TNFa);
+  rate_up = @logic ? $u_TNFR : 0;
+  rate_down = @logic ? 0 : $d_TNFR;
+}
+
+Node mTOR {
+  logic = (AKT);
+  rate_up = @logic ? $u_mTOR : 0;
+  rate_down = @logic ? 0 : $d_mTOR;
+}
+
+Node RAS {
+  logic = (!EGFR & Jak) | (EGFR);
+  rate_up = @logic ? $u_RAS : 0;
+  rate_down = @logic ? 0 : $d_RAS;
+}
+
+Node Stat3 {
+  logic = (Jak);
+  rate_up = @logic ? $u_Stat3 : 0;
+  rate_down = @logic ? 0 : $d_Stat3;
+}
+
+Node PI3K {
+  logic = (!AR & !EGFR & IGF1_R) | (!AR & EGFR) | (AR);
+  rate_up = @logic ? $u_PI3K : 0;
+  rate_down = @logic ? 0 : $d_PI3K;
+}
+
+Node NFkB {
+  logic = (IKK);
+  rate_up = @logic ? $u_NFkB : 0;
+  rate_down = @logic ? 0 : $d_NFkB;
+}
+
+Node GSK3 {
+  logic = (AKT);
+  rate_up = @logic ? $u_GSK3 : 0;
+  rate_down = @logic ? 0 : $d_GSK3;
+}
+
+Node IL6R {
+  logic = (IL6);
+  rate_up = @logic ? $u_IL6R : 0;
+  rate_down = @logic ? 0 : $d_IL6R;
+}
+
+Node HSP27 {
+  logic = (p38);
+  rate_up = @logic ? $u_HSP27 : 0;
+  rate_down = @logic ? 0 : $d_HSP27;
+}
+
+Node p38 {
+  logic = (Rac);
+  rate_up = @logic ? $u_p38 : 0;
+  rate_down = @logic ? 0 : $d_p38;
+}
+
+Node Rac {
+  logic = (!RAS & Stress) | (RAS);
+  rate_up = @logic ? $u_Rac : 0;
+  rate_down = @logic ? 0 : $d_Rac;
+}
+
+Node beta_catenin {
+  logic = (GSK3);
+  rate_up = @logic ? $u_beta_catenin : 0;
+  rate_down = @logic ? 0 : $d_beta_catenin;
+}
+
+Node MEK {
+  logic = (RAS);
+  rate_up = @logic ? $u_MEK : 0;
+  rate_down = @logic ? 0 : $d_MEK;
+}
+
+Node ERK1_2 {
+  logic = (MEK);
+  rate_up = @logic ? $u_ERK1_2 : 0;
+  rate_down = @logic ? 0 : $d_ERK1_2;
+}
+
+Node JNK {
+  logic = (!TNFR & Rac) | (TNFR);
+  rate_up = @logic ? $u_JNK : 0;
+  rate_down = @logic ? 0 : $d_JNK;
+}
+
+Node IGF1_R {
+  logic = (IGF_1);
+  rate_up = @logic ? $u_IGF1_R : 0;
+  rate_down = @logic ? 0 : $d_IGF1_R;
+}
+
+Node DHT {
+  rate_up = 0;
+  rate_down = $u_DHT;
+}
+
+Node Stress {
+  rate_up = 0;
+  rate_down = $u_Stress;
+}
+
