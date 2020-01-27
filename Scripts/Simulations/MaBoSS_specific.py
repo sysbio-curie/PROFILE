@@ -360,7 +360,7 @@ else:
                     os.system("echo '["+node+"].istate=0[1], 1[0];' >> "+path_fname+".cfg")
                 elif value==1:
                     os.system(sed_string+"'s/d_"+node+" *= *[0-9]*\.*[0-9]*;/d_"+node+"=0;/g' "+path_fname+"'.cfg'")
-                    os.system("echo '["+node+"].istate=1[1], 0[1];' >> "+path_fname+".cfg")
+                    os.system("echo '["+node+"].istate=1[1], 0[0];' >> "+path_fname+".cfg")
                 
         while len(previous)<i-(nbprocesses-1):
             time.sleep(1)
