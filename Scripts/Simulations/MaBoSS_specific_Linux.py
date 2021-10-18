@@ -237,10 +237,10 @@ def perform_MaBoSS_simulation(n_profile, fname, profile_name):
     # add the number of the simulation to the line finally saved
     os.system("echo "+str(n_profile)+"\t"+profile_name+" $(tail -n 1 "+path_fname+"/"+fname+"_lastprob.csv) >> "+save_file)
     #Remove temporary files
-    os.system("rm "+path_fname+"/*")
-    os.system("rmdir "+path_fname)
-    os.system("rm "+path_fname+".bnd")
-    os.system("rm "+path_fname+".cfg")
+    # os.system("rm "+path_fname+"/*")
+    # os.system("rmdir "+path_fname)
+    # os.system("rm "+path_fname+".bnd")
+    # os.system("rm "+path_fname+".cfg")
     if profile_name is not "WT":
         previous.append(n_profile)
 
@@ -334,5 +334,5 @@ else:
     for process in processes:
         process.join()
         
-    os.system("rm "+path_model+".bnd")
-    os.system("rm "+path_model+".cfg")
+    # os.system("rm "+path_model+".bnd")
+    # os.system("rm "+path_model+".cfg")
