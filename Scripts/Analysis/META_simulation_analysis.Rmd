@@ -93,7 +93,7 @@ ggplot(META_clin, aes(x=PAM50, fill=PAM50)) + geom_bar() + xlab("PAM50 group") +
 
 
 #Import MKI67 for futher test. First utilities to convert patient names
-MKI67_num <- unlist(strsplit(system("grep \"MKI67\\t\" Data/METABRIC/data_expression.txt", intern = T),"\t")) %>% tail(length(.)-2) %>% as.numeric
+MKI67_num <- unlist(strsplit(system("grep -w \"MKI67\" Data/METABRIC/data_expression.txt", intern = T),"\t")) %>% tail(length(.)-2) %>% as.numeric
 MKI67_id <- unlist(strsplit(system("grep \"Hugo_Symbol\" Data/METABRIC/data_expression.txt", intern = T),"\t"))
 MKI67_id <- MKI67_id[3:length(MKI67_id)]
 MKI67 <- cbind.data.frame(MKI67_id, MKI67_num) %>% rename(PATIENT_ID=MKI67_id, MKI67=MKI67_num) %>% mutate(MKI67=log2(MKI67+1))
