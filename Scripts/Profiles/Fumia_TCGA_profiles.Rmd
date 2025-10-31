@@ -95,7 +95,7 @@ TCGA_prot <- select(TCGA_RPPA, PATIENT_ID, one_of(no_phospho_list))
 TCGA_phospho <- select(TCGA_RPPA, PATIENT_ID, one_of(phospho_list))
 
 #Additional imports: PAM50 gene list
-PAM50 <- read_delim("Data/Common/pam50_centroids.txt", delim = "\t") %>% rename(Gene=1) %>% select(Gene)
+PAM50 <- read_delim("Data/Common/pam50_centroids.txt", delim = "\t") %>% select(Gene)
 
 #Genes involved in Fumia model
 genenames <- read.table("Models/Fumia2013/Fumia_namesToHugo_curated.txt",header=T,sep="\t")
