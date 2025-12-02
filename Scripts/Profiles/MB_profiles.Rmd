@@ -1,0 +1,449 @@
+---
+title: "PROFILE-MB"
+author: "Érica Garcia Verellen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+PROFILE pipeline based on Jonas Béal PROFILE tutorial.
+
+Visit: https://github.com/sysbio-curie/PROFILE/tree/master
+
+#######################
+## Set up
+#######################
+
+We set the paths to the folders:
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Paths
+original_path <- normalizePath(getwd())
+base_folder <- dirname(original_path)
+
+knitr::opts_knit$set(root.dir = base_folder)
+futile.logger::flog.threshold(futile.logger::ERROR, name = "VennDiagramLogger")
+```
+
+```{r}
+getwd()
+```
+
+## Objectives
+Generate patients profiles from medulloblastoma G3-G4 data for further logical modelling.
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+list.of.packages <- c("tidyverse","VennDiagram","networkD3","knitr","gridExtra","mclust","diptest","moments","magrittr","gplots")
+pacman::p_load(list.of.packages, character.only = TRUE)
+
+tbl_to_df <- function(x){
+  x <- x %>% as.data.frame %>%  remove_rownames %>% column_to_rownames(var="PATIENT_ID")
+} 
+rename <- dplyr::rename
+select <- dplyr::select
+```
+
+#######################
+## Import data
+#######################
+
+### Medulloblastoma G3-G4 dataset recap
+
+Available omics data: arrays. We used biomaRt from Bioconductor to translate the ensembl IDs to HGNC symbols, using the mart object.
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("biomaRt")
+```
+
+
+```{r}
+library(biomaRt)
+
+expr <- read.csv("Data/augmented_data.csv", row.names = 1)
+
+genes <- gsub("_at$", "", colnames(expr)) # delete "_at" from the ensembl IDs
+
+mart <- useEnsembl("ensembl", dataset = "hsapiens_gene_ensembl") # create the mart object
+annot <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol"),
+               filters = "ensembl_gene_id",
+               values = genes,
+               mart = mart) # create df with the annotations of the genes' IDs
+
+colnames(expr) <- genes # change the colmun names
+
+expr <- expr[, annot$ensembl_gene_id, drop = FALSE] # filter the ensembl IDs present in the dataset and create a matrix
+
+genes_after <- colnames(expr) # save colnames before transformation
+
+colnames(expr) <- annot$hgnc_symbol # translate ensembl IDs
+```
+
+```{r}
+genes_removed <- setdiff(genes, genes_after) # genes that were removed after the filter
+genes_removed
+```
+
+### The model 
+
+Restrict the analysis to the genes of the logical model.
+Note that it is important to set up a document with name correspondence and carefully verify the names of the model (case-sensitive!) and their corresponding HUGO name.
+
+```{r}
+filter_nodes <- readLines("Data/combined_final_list.txt")
+
+data <- expr[, colnames(expr) %in% filter_nodes]
+```
+
+```{r}
+col_data <- colnames(data)
+missing_nodes <- setdiff(filter_nodes, col_data)
+print(missing_nodes)
+```
+
+### Create RNA profiles
+
+Array data is intrinsically continuous and therefore require preliminary data processing. 
+In order to provide a comprehensive description, by default all genes are processed/categorized.
+
+#### Binarization with classification tree
+
+But first, we need to add a PATIENT_ID columns.
+
+```{r}
+data$PATIENT_ID <- rownames(data)
+```
+
+```{r binarization_normalization_utilities, echo=FALSE, message=FALSE, warning=FALSE}
+
+#function to compute the Bimodality Index (BI) described in Wang et al. (2009)
+BI <- function(dataset) {
+  x <- dataset
+    mc <- Mclust(na.omit(x), G = 2, modelNames = "E", verbose = FALSE)
+    if (is.null(mc)) {
+      bi <- NA
+    } else {
+      sigma <- sqrt(mc$parameters$variance$sigmasq)
+      delta <- abs(diff(mc$parameters$mean))/sigma
+      pi <- mc$parameters$pro[1]
+      bi <- delta * sqrt(pi*(1-pi))
+    }
+  bi
+}
+
+#function to binarize the tails of the distribution, based on inter-quartile range (IQR), similar to methods described in teh outlier-sum statistic (Tibshirani and Hastie, 2007). Can be called with a reference dataset
+OSclass <- function(exp_dataset, ref_dataset=exp_dataset) {
+  classif <-rep(NA,length(exp_dataset))
+  q25 <- quantile(ref_dataset,0.25, na.rm = T)
+  q75 <- quantile(ref_dataset,0.75, na.rm = T)
+  IQR <- q75 - q25 #InterQuartile Range
+  classif[exp_dataset>IQR+q75] <- 1
+  classif[exp_dataset<q25-IQR] <- 0
+  return(classif)
+}
+
+#function to binarize bimodal distributions based on a 2-mode gaussian mixture model (with equal variances). Can be called with a reference dataset
+BIMclass <- function(exp_dataset, ref_dataset=exp_dataset) {
+  mc <- Mclust(na.omit(ref_dataset), modelNames = "E", G=2, verbose = FALSE)
+  classif <- rep(NA,length(exp_dataset))
+  if (diff(mc$parameters$mean)>0){
+    thresh_down <- max(mc$data[mc$classification==1 & mc$uncertainty <= 0.05])
+    thresh_up <- min(mc$data[mc$classification==2 & mc$uncertainty <= 0.05])
+    classif[exp_dataset<=thresh_down] <- 0
+    classif[exp_dataset>=thresh_up] <- 1
+  } else if (diff(mc$parameters$mean)<0){
+    thresh_down <- max(mc$data[mc$classification==2 & mc$uncertainty <= 0.05])
+    thresh_up <- min(mc$data[mc$classification==1 & mc$uncertainty <= 0.05])
+    classif[exp_dataset<=thresh_down] <- 0
+    classif[exp_dataset>=thresh_up] <- 1
+  }
+  return(classif)
+}
+
+#function for normalization of zero-inflated data
+norm_fun_lin <- function(xdat, reference = xdat){
+  x_proc <- (xdat-quantile(reference, 0.01, na.rm = T))/quantile(xdat-quantile(reference, 0.01, na.rm = T), 0.99, na.rm = T)
+  x_proc[x_proc<0] <- 0
+  x_proc[x_proc>1] <- 1
+  x_proc
+}
+
+#function for normalization of unimodal data
+norm_fun_sig <- function(xdat, reference = xdat){
+  xdat <- xdat - median(reference, na.rm = T)
+  lambda <- log(3)/mad(reference, na.rm = T)
+  transformation <- function(x){
+    y <- 1/(1+exp(-lambda*x))
+    y
+  }
+  transformation(xdat) 
+}
+
+#function for normalization of unimodal data
+norm_fun_bim <- function(xdat, reference = xdat) {
+  not_na_xdat <- !is.na(xdat)
+  not_na_ref <- !is.na(reference)
+  mc <- Mclust(reference[not_na_ref], modelNames = "E", G=2, verbose = FALSE)
+  pred <- predict.Mclust(mc,xdat[not_na_xdat])
+  normalization <- rep(NA,length(xdat))
+  if (diff(mc$parameters$mean)>0){
+    normalization[not_na_xdat] <- pred$z[,2]
+  } else if (diff(mc$parameters$mean)<0){
+    normalization[not_na_xdat] <- pred$z[,1]
+  }
+  normalization
+}
+```
+
+### Create RNA profile criteria
+
+```{r RNA_profiles_original_criteria, echo=FALSE, message=FALSE, warning=FALSE, eval=TRUE}
+
+#Here we compute all statistical tools and criteria needed to perform the classification of distributions in the following categories: discarded, zero-inflated, unimodal and bimodal
+compute_criteria <- function(exp_dataset){
+  exp_dataset <- exp_dataset %>% select(-PATIENT_ID)
+  criteria <- tibble(Gene=colnames(exp_dataset), Dip=NA, BI=NA, Kurtosis=NA, DropOutRate=NA, MeanNZ=NA, DenPeak=NA, Amplitude=NA)
+  
+  #Compute
+  pb = txtProgressBar(min = 1, max = ncol(exp_dataset), initial = 1) 
+  for (i in 1:ncol(exp_dataset)){
+    x <- na.omit(unlist(exp_dataset[,i]))
+    criteria$Amplitude[i] <- max(x)-min(x)
+    
+    if (criteria$Amplitude[i] !=0){
+      criteria$Dip[i] <- dip.test(x)$p.value
+      criteria$BI[i] <- BI(x)
+      criteria$Kurtosis[i] <- kurtosis(x)-3
+      criteria$DropOutRate[i] <- sum(x==0)/length(x)
+      criteria$MeanNZ[i] <- sum(x)/sum(x!=0)
+      den <- density(x, na.rm = T)
+      criteria$DenPeak[i] <- den$x[which.max(den$y)]
+    }
+    
+    setTxtProgressBar(pb,i)
+  }
+  
+  threshold <- median(criteria$Amplitude)/10
+  criteria <- criteria %>% 
+    mutate(Category=ifelse(Amplitude<threshold | DropOutRate>0.95, "Discarded", NA)) %>%
+    mutate(Category=ifelse(is.na(Category) & (BI>1.0 & Dip<0.2 & Kurtosis < 2),"Bimodal",Category)) %>%
+    mutate(Category=ifelse(is.na(Category) & DenPeak<threshold, "ZeroInf", Category)) %>%
+    mutate(Category=ifelse(is.na(Category), "Unimodal", Category))
+  
+  return(criteria)
+}
+
+# compute_criteria adapted for microarray-like data (fewer literal zeros)
+compute_criteria_microarray <- function(exp_dataset,
+                                       # discard_amp_quantile = 0.1,  # discard lowest x% by amplitude
+                                       discard_iqr_multiplier = 0.1, # discard if gene IQR < multiplier * median(IQR)
+                                       bimod_BI_threshold = 1.0,
+                                       bimod_dip_p = 0.05,
+                                       bimod_kurtosis = 2){
+  # remove PATIENT_ID column if present
+  if ("PATIENT_ID" %in% colnames(exp_dataset)) exp_dataset <- exp_dataset %>% select(-PATIENT_ID)
+  
+  criteria <- tibble(Gene = colnames(exp_dataset),
+                     Dip = NA,
+                     BI = NA,
+                     Kurtosis = NA,
+                     DropOutRate = NA,
+                     MeanNZ = NA,
+                     DenPeak = NA,
+                     Amplitude = NA,
+                     IQR = NA)
+  
+  ngenes <- ncol(exp_dataset)
+  pb <- txtProgressBar(min = 1, max = ngenes, initial = 1)
+  for (i in seq_len(ngenes)){
+    x <- na.omit(unlist(exp_dataset[,i]))
+    criteria$Amplitude[i] <- if (length(x)>0) max(x)-min(x) else NA
+    criteria$IQR[i] <- if (length(x)>0) IQR(x, na.rm = TRUE) else NA
+    if (!is.na(criteria$Amplitude[i]) && criteria$Amplitude[i] != 0 && length(x) > 2){
+      criteria$Dip[i] <- dip.test(x)$p.value
+      criteria$BI[i] <- BI(x)
+      criteria$Kurtosis[i] <- kurtosis(x) - 3
+      criteria$DropOutRate[i] <- sum(x==0)/length(x)
+      nz <- x[x != 0]
+      criteria$MeanNZ[i] <- if (length(nz) > 0) mean(nz) else NA
+      den <- density(x, na.rm = TRUE)
+      criteria$DenPeak[i] <- den$x[which.max(den$y)]
+    }
+    setTxtProgressBar(pb, i)
+  }
+  close(pb)
+  
+  # Data-driven discard thresholds
+  # amp_threshold <- quantile(criteria$Amplitude, probs = discard_amp_quantile, na.rm = TRUE)
+  iqr_median <- median(criteria$IQR, na.rm = TRUE)
+  iqr_threshold <- discard_iqr_multiplier * iqr_median
+
+  criteria <- criteria %>%
+    mutate(Category = NA_character_) %>%
+    # mutate(Category = ifelse(is.na(Category) & (Amplitude < amp_threshold | IQR < iqr_threshold), "Discarded", Category)) %>%
+    mutate(Category = ifelse(is.na(Category) & (IQR < iqr_threshold), "Discarded", Category)) %>%
+    mutate(Category = ifelse(is.na(Category) & (BI > bimod_BI_threshold & Dip < bimod_dip_p & Kurtosis < bimod_kurtosis), "Bimodal", Category)) %>%
+    mutate(Category = ifelse(is.na(Category), "Unimodal", Category))
+
+  # attach used thresholds for transparency
+  # attr(criteria, "amp_threshold") <- amp_threshold
+  attr(criteria, "iqr_threshold") <- iqr_threshold
+  attr(criteria, "params") <- list(bimod_BI_threshold = bimod_BI_threshold,
+                                    bimod_dip_p = bimod_dip_p,
+                                    bimod_kurtosis = bimod_kurtosis)
+  return(criteria)
+}
+
+```
+
+```{r}
+criteria_data <- compute_criteria_microarray(data)
+```
+
+Visualize the distribution of gene categories (Bimodal, Unimodal...) across the cohort
+
+```{r RNA_profiles_original_catDistrib, echo=FALSE, message=FALSE, warning=FALSE}
+
+print("MB assignments for model-related nodes:")
+kable(t(table(criteria_data$Category)))
+```
+All are unimodal. Here are some examples:
+
+```{r RNA_profiles_original_catPlot, echo=FALSE, message=FALSE, warning=FALSE}
+
+criteria_data %>% filter(Category=="Unimodal") %>% select(Gene) %>% slice(sample(nrow(.),16)) %>% unlist %>% unname %>% select(data,.) %>%  gather %>%
+  ggplot(mapping = aes(x = value)) + geom_histogram(bins = 30) + facet_wrap(~key, scales = 'free') + ggtitle("20 random Unimodal genes")
+```
+
+And depending on the distribution category, we can perform binarization:
+
+```{r RNA_profiles_original_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+#function to apply the proper binarization method depending on the gene expression distribution category
+binarize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.plot=F){
+  if(!missing(gene)){
+    
+    gene_cat <- ref_criteria %>% filter(Gene==gene) %>% select(Category) %>% unlist
+    x <- unlist(select(exp_dataset,gene))
+    x_ref <- unlist(select(ref_dataset,gene))
+    
+    if (gene_cat=="Discarded"){
+        stop("Discarded gene")
+      
+      } else if (gene_cat=="Bimodal"){
+        gene_bin <- BIMclass(x,x_ref)
+        
+      } else {
+        gene_bin <- OSclass(x,x_ref)
+      }
+    names(gene_bin) <- exp_dataset$PATIENT_ID
+    if(show.plot==T){
+      if(all(is.na(gene_bin))){
+        tibble(Continuous=x) %>% ggplot(aes(x=Continuous))+geom_histogram(bins=30)+ggtitle(gene)
+      } else {
+        tibble(Continuous=x, Discrete=factor(gene_bin)) %>% ggplot(aes(x=Continuous, fill=Discrete))+geom_histogram(bins=30)+ggtitle(gene)
+      }
+    } else {
+      return(gene_bin)
+    }
+    
+  } else {
+    exp_dataset <- tbl_to_df(exp_dataset) 
+    ref_dataset <- tbl_to_df(ref_dataset)
+    if(dim(exp_dataset)[2] != dim(ref_criteria)[1]){stop("Different number of genes")}
+    logi_dis <- ref_criteria$Category=="Discarded"
+    logi_OS <- ref_criteria$Category=="Unimodal" | ref_criteria$Category=="ZeroInf"
+    logi_bim <- ref_criteria$Category=="Bimodal"
+    exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
+    exp_dataset[,logi_OS] <- mapply(function(x,y) OSclass(x,y), as.data.frame(exp_dataset[,logi_OS]), as.data.frame(ref_dataset[,logi_OS]))
+    exp_dataset[,logi_bim] <- mapply(function(x,y) BIMclass(x,y), as.data.frame(exp_dataset[,logi_bim]), as.data.frame(ref_dataset[,logi_bim]))
+    
+    return(exp_dataset)
+  }
+  
+}
+```
+
+```{r}
+print("Unimodal example:")
+binarize_exp(data,data, criteria_data, "AKT1", T)
+
+
+data_prof <- binarize_exp(data,data, criteria_data)
+
+data_prof %>% select(one_of(filter_nodes)) %>% is.na %>% `!` %>% rowSums %>% sort(decreasing=TRUE) %>% plot(ylab="# of bin. array", xlab="Patients", main="Distribution of binarized array per patients in MB cohort")
+
+#Create Profiles
+profiles <- data_prof %>% select(one_of(filter_nodes))
+```
+
+#### Normalization
+Note that, in the nomenclature of the files, unless explicitly stated with the mention _norm, the data is binarized.
+
+```{r norm_profiles, echo=FALSE, message=FALSE, warning=FALSE}
+
+normalize_exp <-  function(exp_dataset, ref_dataset, ref_criteria, gene, show.plot=F){
+  if(!missing(gene)){
+    
+    gene_cat <- ref_criteria %>% filter(Gene==gene) %>% select(Category) %>% unlist
+    x <- unlist(select(exp_dataset,gene))
+    x_ref <- unlist(select(ref_dataset,gene))
+    
+    if (gene_cat=="Discarded"){
+        stop("Discarded gene")
+      
+      } else if (gene_cat=="Bimodal"){
+        gene_bin <- norm_fun_bim(x,x_ref)
+        
+      } else if (gene_cat=="Unimodal"){
+        gene_bin <- norm_fun_sig(x,x_ref)
+        
+      } else {
+        gene_bin <- norm_fun_lin(x,x_ref)
+      }
+    names(gene_bin) <- exp_dataset$PATIENT_ID
+    
+    if(show.plot==T){
+      gene_bin %>% unlist %>% as.data.frame %>% ggplot(aes(x=.)) + geom_histogram(bins=30)+xlab(gene)
+    } else {
+      return(gene_bin)
+    }
+    
+  } else {
+    exp_dataset <- tbl_to_df(exp_dataset) 
+    ref_dataset <- tbl_to_df(ref_dataset)
+    if(dim(exp_dataset)[2] != dim(ref_criteria)[1]){stop("Different number of genes")}
+    logi_dis <- ref_criteria$Category=="Discarded"
+    logi_uni <- ref_criteria$Category=="Unimodal"
+    logi_zero <- ref_criteria$Category=="ZeroInf"
+    logi_bim <- ref_criteria$Category=="Bimodal"
+    exp_dataset[,logi_dis] <- lapply(exp_dataset[,logi_dis], function(x) rep(NA, length(x)))
+    exp_dataset[,logi_uni] <- mapply(function(x,y) norm_fun_sig(x,y), as.data.frame(exp_dataset[,logi_uni]), as.data.frame(ref_dataset[,logi_uni]))
+    exp_dataset[,logi_zero] <- mapply(function(x,y) norm_fun_lin(x,y), as.data.frame(exp_dataset[,logi_zero]), as.data.frame(ref_dataset[,logi_zero]))
+    exp_dataset[,logi_bim] <- mapply(function(x,y) norm_fun_bim(x,y), as.data.frame(exp_dataset[,logi_bim]), as.data.frame(ref_dataset[,logi_bim]))
+    
+    return(exp_dataset)
+  }
+  
+}
+```
+
+```{r}
+print("Unimodal example:")
+normalize_exp(data,data, criteria_data, "AKT1", T)
+
+data_prof_norm <- normalize_exp(data, data, criteria_data)
+```
+
+## Write profiles
+The profiles are exported as csv files.
+
+```{r}
+write.csv(data_prof, "Profiles/Array_MB.csv", row.names=TRUE)
+
+write.csv(data_prof_norm, "Profiles/Array_MB_norm.csv", row.names=TRUE)
+```
+
