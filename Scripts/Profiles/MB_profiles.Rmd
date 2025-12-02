@@ -238,6 +238,10 @@ compute_criteria <- function(exp_dataset){
 }
 
 # compute_criteria adapted for microarray-like data (fewer literal zeros)
+# Notes about parameters :
+# - discard_amp_quantile (default 0.1): drops genes in the bottom 10% amplitude. If your arrays are noisy, you may prefer 0.05 or 0.20.
+# - discard_iqr_multiplier: relative to median IQR; default 0.1 means discard genes with IQR < 0.1 * median(IQR).
+# - bimod_BI_threshold and bimod_dip_p: tune these by inspecting candidate genes flagged as bimodal. BI and dip test behavior depends on sample size and separation of peaks.
 compute_criteria_microarray <- function(exp_dataset,
                                        # discard_amp_quantile = 0.1,  # discard lowest x% by amplitude
                                        discard_iqr_multiplier = 0.1, # discard if gene IQR < multiplier * median(IQR)
